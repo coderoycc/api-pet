@@ -9,7 +9,7 @@ type User struct {
 	ID        string
 	Name      string
 	Email     string
-	password  string
+	Password  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
