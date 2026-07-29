@@ -1,0 +1,47 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*_test
+
+# Local files
+*.local*
+
+# Architecture specific extensions/prefixes
+*.[5689]*
+[5689].*
+
+# Go vendor directory
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*~
+
+# Build artifacts
+bin/
+dist/
+*.out
+
+# Environment variables
+.env
+.env.local
+
+# Coverage reports
+coverage.out
