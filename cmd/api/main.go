@@ -6,6 +6,10 @@ import (
 
 	"api-go/internal/auth"
 	authHttp "api-go/internal/auth/interface/http"
+	"api-go/internal/settings"
+	settingsPostgres "api-go/internal/settings/infrastructure/persistence/postgres"
+	"api-go/internal/suppliers"
+	"api-go/internal/customers"
 	"api-go/internal/user"
 	userPostgres "api-go/internal/user/infrastructure/persistence/postgres"
 
@@ -29,6 +33,10 @@ func main() {
 		log.Fatalf("failed to migrate database: %v", err)
 	}
 
+	if err := settingsPostgres.AutoMigrate(db); err != nil {
+		log.Fatalf("failed to migrate database: %v", err)
+	}
+
 	app := fiber.New()
 
 	userRepo := userPostgres.NewRepository(db)
@@ -44,6 +52,15 @@ func main() {
 	roleMiddleware := authHttp.RequireRole("Administrador")
 
 	user.RegisterRoles(app, db, authMiddleware, roleMiddleware)
+
+	// Settings configuration
+	settingsRoleMiddleware := authHttp.RequireRole("Administrador") // Configurable, se pueden agregar más roles: authHttp.RequireRole("Administrador", "Gerente")
+	settingsGroup := app.Group("/settings")
+	settings.RegisterUnitOfMeasure(settingsGroup, db, authMiddleware, settingsRoleMiddleware)
+	settings.RegisterWarehouse(settingsGroup, db, authMiddleware, settingsRoleMiddleware)
+
+	suppliers.RegisterSuppliers(app.Group("/api/v1"), db, authMiddleware, roleMiddleware)
+	customers.RegisterCustomers(app.Group("/api/v1"), db, authMiddleware, roleMiddleware)
 
 	log.Fatal(app.Listen(":3000"))
 }
