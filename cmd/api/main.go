@@ -9,7 +9,10 @@ import (
 	"api-go/internal/settings"
 	settingsPostgres "api-go/internal/settings/infrastructure/persistence/postgres"
 	"api-go/internal/suppliers"
+	"api-go/internal/products"
+	"api-go/internal/purchases"
 	"api-go/internal/customers"
+	"api-go/internal/inventory"
 	"api-go/internal/user"
 	userPostgres "api-go/internal/user/infrastructure/persistence/postgres"
 
@@ -60,7 +63,10 @@ func main() {
 	settings.RegisterWarehouse(settingsGroup, db, authMiddleware, settingsRoleMiddleware)
 
 	suppliers.RegisterSuppliers(app.Group("/api/v1"), db, authMiddleware, roleMiddleware)
+	productRepo := products.RegisterProducts(app.Group("/api/v1"), db, authMiddleware, roleMiddleware)
+	purchases.RegisterPurchases(app.Group("/api/v1"), db, authMiddleware, roleMiddleware, productRepo)
 	customers.RegisterCustomers(app.Group("/api/v1"), db, authMiddleware, roleMiddleware)
+	inventory.RegisterInventory(app.Group("/api/v1"), db, authMiddleware, roleMiddleware, productRepo)
 
 	log.Fatal(app.Listen(":3000"))
 }
