@@ -1,52 +1,96 @@
 package api
 
 import (
+	"errors"
+
 	"api-go/internal/auth/application"
 	"api-go/internal/auth/domain"
-	"errors"
-	"net/http"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 type Handler struct {
-	service *application.AuthService
+	authService application.AuthService
 }
 
-func NewHandler(service *application.AuthService) *Handler {
-	return &Handler{service}
+func NewHandler(authService application.AuthService) *Handler {
+	return &Handler{
+		authService: authService,
+	}
 }
 
 func (h *Handler) Login(c fiber.Ctx) error {
-	var req application.LoginRequest
+	var req domain.LoginRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid request body",
 		})
 	}
 
-	resp, err := h.service.Login(c.Context(), req)
-	if err != nil {
-		return mapError(c, err)
+	if req.Email == "" || req.Password == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Email and password are required",
+		})
 	}
 
-	return c.Status(http.StatusOK).JSON(resp)
+	res, err := h.authService.Login(c.Context(), &req)
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCredentials) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "Invalid credentials",
+			})
+		}
+		if errors.Is(err, domain.ErrUserSuspended) || errors.Is(err, domain.ErrUserDeleted) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Internal server error",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(res)
 }
 
-func mapError(c fiber.Ctx, err error) error {
-	switch {
-	case errors.Is(err, domain.ErrInvalidCredentials):
-		return c.Status(http.StatusForbidden).JSON(fiber.Map{
-			"error": err.Error(),
-		})
-	case errors.Is(err, domain.ErrInvalidToken):
-		return c.Status(http.StatusForbidden).JSON(fiber.Map{
-			"error": err.Error(),
-		})
+func (h *Handler) Logout(c fiber.Ctx) error {
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Successfully logged out",
+	})
+}
 
-	default:
-		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{
-			"error": "internal server error",
+func (h *Handler) Profile(c fiber.Ctx) error {
+	userClaims, ok := c.Locals("user").(jwt.MapClaims)
+	if !ok {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Unauthorized",
 		})
 	}
+
+	email, ok := userClaims["email"].(string)
+	if !ok || email == "" {
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "Invalid token claims",
+		})
+	}
+
+	profile, err := h.authService.GetProfile(c.Context(), email)
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCredentials) {
+			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"error": "User not found",
+			})
+		}
+		if errors.Is(err, domain.ErrUserSuspended) || errors.Is(err, domain.ErrUserDeleted) {
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Internal server error",
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(profile)
 }

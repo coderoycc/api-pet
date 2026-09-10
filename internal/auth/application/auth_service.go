@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"api-go/internal/auth/domain"
@@ -12,18 +13,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var (
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrUserSuspended      = errors.New("user is suspended")
-	ErrUserDeleted        = errors.New("user is deleted")
-)
-
 type AuthService interface {
 	Login(ctx context.Context, req *domain.LoginRequest) (*domain.AuthResponse, error)
+	GetProfile(ctx context.Context, email string) (*domain.UserPayload, error)
 }
 
 type authService struct {
-	userRepo userDomain.Repository
+	userRepo  userDomain.Repository
 	jwtSecret []byte
 }
 
@@ -35,23 +31,28 @@ func NewAuthService(userRepo userDomain.Repository, secret string) AuthService {
 }
 
 func (s *authService) Login(ctx context.Context, req *domain.LoginRequest) (*domain.AuthResponse, error) {
-	user, err := s.userRepo.FindByEmail(ctx, req.Email)
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if email == "" || req.Password == "" {
+		return nil, domain.ErrInvalidCredentials
+	}
+
+	user, err := s.userRepo.FindByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, userDomain.ErrNotFound) {
-			return nil, ErrInvalidCredentials
+			return nil, domain.ErrInvalidCredentials
 		}
 		return nil, err
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		return nil, ErrInvalidCredentials
+		return nil, domain.ErrInvalidCredentials
 	}
 
 	if user.Status == "suspended" {
-		return nil, ErrUserSuspended
+		return nil, domain.ErrUserSuspended
 	}
 	if user.Status == "deleted" {
-		return nil, ErrUserDeleted
+		return nil, domain.ErrUserDeleted
 	}
 
 	payload := domain.ToUserPayload(user)
@@ -72,4 +73,28 @@ func (s *authService) Login(ctx context.Context, req *domain.LoginRequest) (*dom
 		AccessToken: tokenString,
 		User:        payload,
 	}, nil
+}
+
+func (s *authService) GetProfile(ctx context.Context, email string) (*domain.UserPayload, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return nil, domain.ErrInvalidCredentials
+	}
+
+	user, err := s.userRepo.FindByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, userDomain.ErrNotFound) {
+			return nil, domain.ErrInvalidCredentials
+		}
+		return nil, err
+	}
+
+	if user.Status == "suspended" {
+		return nil, domain.ErrUserSuspended
+	}
+	if user.Status == "deleted" {
+		return nil, domain.ErrUserDeleted
+	}
+
+	return domain.ToUserPayload(user), nil
 }

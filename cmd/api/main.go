@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"api-go/internal/auth"
-	authHttp "api-go/internal/auth/interface/http"
 	"api-go/internal/customers"
 	"api-go/internal/inventory"
 	"api-go/internal/products"
@@ -23,6 +22,9 @@ import (
 
 func main() {
 	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "supersecretkey"
+	}
 
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -47,17 +49,13 @@ func main() {
 	user.Register(app.Group("/users"), db)
 	auth.Register(app.Group("/auth"), db, jwtSecret)
 
-	jwtSecret := os.Getenv("JWT_SECRET")
-	if jwtSecret == "" {
-		jwtSecret = "supersecretkey"
-	}
-	authMiddleware := authHttp.NewAuthMiddleware(jwtSecret)
-	roleMiddleware := authHttp.RequireRole("Administrador")
+	authMiddleware := auth.NewAuthMiddleware(jwtSecret)
+	roleMiddleware := auth.RequireRole("Administrador")
 
 	user.RegisterRoles(app, db, authMiddleware, roleMiddleware)
 
 	// Settings configuration
-	settingsRoleMiddleware := authHttp.RequireRole("Administrador") // Configurable, se pueden agregar más roles: authHttp.RequireRole("Administrador", "Gerente")
+	settingsRoleMiddleware := auth.RequireRole("Administrador") // Configurable, se pueden agregar más roles: auth.RequireRole("Administrador", "Gerente")
 	settingsGroup := app.Group("/settings")
 	settings.RegisterUnitOfMeasure(settingsGroup, db, authMiddleware, settingsRoleMiddleware)
 	settings.RegisterWarehouse(settingsGroup, db, authMiddleware, settingsRoleMiddleware)
