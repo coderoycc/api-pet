@@ -26,6 +26,12 @@ func (h *CustomerHandler) Create(c fiber.Ctx) error {
 		})
 	}
 
+	if dto.Name == "" || dto.DocumentType == "" || dto.DocumentNumber == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Name, DocumentType and DocumentNumber are required",
+		})
+	}
+
 	customer, err := h.service.CreateCustomer(c.Context(), dto)
 	if err != nil {
 		if errors.Is(err, domain.ErrCustomerDocumentExists) {
@@ -89,6 +95,12 @@ func (h *CustomerHandler) Update(c fiber.Ctx) error {
 	if err := c.Bind().Body(&dto); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
 			"error": "Invalid request payload",
+		})
+	}
+
+	if dto.Name == "" || dto.DocumentType == "" || dto.DocumentNumber == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Name, DocumentType and DocumentNumber are required",
 		})
 	}
 
