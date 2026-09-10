@@ -130,6 +130,18 @@ func (r *repository) FindByEmail(ctx context.Context, email string) (*domain.Use
 	return toDomain(&model), nil
 }
 
+func (r *repository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
+	var model userModel
+	err := r.db.WithContext(ctx).First(&model, "email = ?", email).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return toDomain(&model), nil
+}
+
 func (r *repository) FindAll(ctx context.Context) ([]domain.User, error) {
 	var models []userModel
 	err := r.db.WithContext(ctx).Order("created_at DESC").Find(&models).Error

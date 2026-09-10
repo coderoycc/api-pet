@@ -6,13 +6,13 @@ import (
 
 	"api-go/internal/auth"
 	authHttp "api-go/internal/auth/interface/http"
+	"api-go/internal/customers"
+	"api-go/internal/inventory"
+	"api-go/internal/products"
+	"api-go/internal/purchases"
 	"api-go/internal/settings"
 	settingsPostgres "api-go/internal/settings/infrastructure/persistence/postgres"
 	"api-go/internal/suppliers"
-	"api-go/internal/products"
-	"api-go/internal/purchases"
-	"api-go/internal/customers"
-	"api-go/internal/inventory"
 	"api-go/internal/user"
 	userPostgres "api-go/internal/user/infrastructure/persistence/postgres"
 
@@ -22,6 +22,8 @@ import (
 )
 
 func main() {
+	jwtSecret := os.Getenv("JWT_SECRET")
+
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		dsn = "postgres://postgres:postgres@localhost:5432/api_go?sslmode=disable"
@@ -42,10 +44,8 @@ func main() {
 
 	app := fiber.New()
 
-	userRepo := userPostgres.NewRepository(db)
-
-	auth.Register(app.Group("/auth"), userRepo)
 	user.Register(app.Group("/users"), db)
+	auth.Register(app.Group("/auth"), db, jwtSecret)
 
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {

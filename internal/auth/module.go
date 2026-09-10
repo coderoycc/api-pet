@@ -1,24 +1,21 @@
 package auth
 
 import (
-	"os"
+	"api-go/internal/auth/application"
 
 	"api-go/internal/auth/application"
-	authHttp "api-go/internal/auth/interface/http"
-	userDomain "api-go/internal/user/domain"
+	"api-go/internal/auth/interface/api"
+	"api-go/internal/user/infrastructure/persistence/postgres"
 
 	"github.com/gofiber/fiber/v3"
+
+	"github.com/gofiber/fiber/v3"
+	"gorm.io/gorm"
 )
 
-func Register(router fiber.Router, userRepo userDomain.Repository) {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "supersecretkey" // Default for development, should be overridden in production
-	}
-
-	authService := application.NewAuthService(userRepo, secret)
-	handler := authHttp.NewHandler(authService)
-
-	router.Post("/login", handler.Login)
-	router.Post("/logout", handler.Logout)
+func Register(router fiber.Router, db *gorm.DB, jwtSecret string) {
+	repo := postgres.NewRepository(db)
+	svc := application.NewAuthService(repo, []byte(jwtSecret))
+	handler := api.NewHandler(svc)
+	api.RegisterRoutes(router, handler)
 }
