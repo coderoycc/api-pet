@@ -2,6 +2,7 @@ package api
 
 import (
 	"strconv"
+	"time"
 
 	"api-go/internal/inventory/application"
 	"api-go/internal/inventory/domain"
@@ -95,6 +96,21 @@ func (h *InventoryHandler) GetLogs(c fiber.Ctx) error {
 	}
 	if rStr := c.Query("reasonType"); rStr != "" {
 		filters.ReasonType = &rStr
+	}
+	if startStr := c.Query("startDate"); startStr != "" {
+		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
+			filters.StartDate = &t
+		} else if t, err := time.Parse("2006-01-02", startStr); err == nil {
+			filters.StartDate = &t
+		}
+	}
+	if endStr := c.Query("endDate"); endStr != "" {
+		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
+			filters.EndDate = &t
+		} else if t, err := time.Parse("2006-01-02", endStr); err == nil {
+			t = time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, 999999999, t.Location())
+			filters.EndDate = &t
+		}
 	}
 	if search := c.Query("search"); search != "" {
 		filters.Search = search
