@@ -69,31 +69,24 @@ func (s *inventoryService) AdjustStock(ctx context.Context, req domain.AdjustSto
 		return nil, nil, err
 	}
 
+	now := time.Now()
 	var targetBatch *domain.InventoryBatch
+	var batchID *uuid.UUID
+	var batchNumber *string
+
 	if req.BatchID != nil && *req.BatchID != uuid.Nil {
 		targetBatch, err = s.repo.GetBatchByID(ctx, *req.BatchID)
 		if err != nil {
 			return nil, nil, err
 		}
-	} else {
-		batches, err := s.repo.GetBatchesByProductID(ctx, req.ProductID)
-		if err == nil && len(batches) > 0 {
-			targetBatch = batches[0]
-		}
 	}
 
-	oldStock := 0
-	if targetBatch != nil {
-		oldStock = targetBatch.Quantity
-	}
-
-	diffQuantity := req.NewStock - oldStock
-
-	now := time.Now()
-	var batchID *uuid.UUID
-	var batchNumber *string
+	oldStock := product.Quantity
+	var diffQuantity int
 
 	if targetBatch != nil {
+		oldBatchStock := targetBatch.Quantity
+		diffQuantity = req.NewStock - oldBatchStock
 		targetBatch.Quantity = req.NewStock
 		targetBatch.UpdatedAt = now
 		if err := s.repo.UpdateBatchQuantity(ctx, targetBatch.ID, req.NewStock); err != nil {
@@ -101,13 +94,47 @@ func (s *inventoryService) AdjustStock(ctx context.Context, req domain.AdjustSto
 		}
 		batchID = &targetBatch.ID
 		batchNumber = &targetBatch.BatchNumber
+
+		product.Quantity += diffQuantity
+		if product.Quantity < 0 {
+			product.Quantity = 0
+		}
+	} else {
+		// Ajuste general sobre el producto
+		diffQuantity = req.NewStock - product.Quantity
+		oldStock = product.Quantity
+		product.Quantity = req.NewStock
+
+		batches, err := s.repo.GetBatchesByProductID(ctx, req.ProductID)
+		if err == nil && len(batches) > 0 {
+			// Ajustamos el lote principal
+			targetBatch = batches[0]
+			targetBatch.Quantity += diffQuantity
+			if targetBatch.Quantity < 0 {
+				targetBatch.Quantity = 0
+			}
+			targetBatch.UpdatedAt = now
+			_ = s.repo.UpdateBatchQuantity(ctx, targetBatch.ID, targetBatch.Quantity)
+			batchID = &targetBatch.ID
+			batchNumber = &targetBatch.BatchNumber
+		} else if req.NewStock > 0 {
+			// Si no había ningún lote y ahora hay stock, inicializamos un lote para consistencia futura
+			newBatch := &domain.InventoryBatch{
+				ID:          uuid.New(),
+				ProductID:   product.ID,
+				BatchNumber: fmt.Sprintf("LOTE-%s", uuid.New().String()[:6]),
+				Quantity:    req.NewStock,
+				Cost:        &product.Cost,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			if err := s.repo.CreateBatch(ctx, newBatch); err == nil {
+				batchID = &newBatch.ID
+				batchNumber = &newBatch.BatchNumber
+			}
+		}
 	}
 
-	// Update overall product quantity
-	product.Quantity += diffQuantity
-	if product.Quantity < 0 {
-		product.Quantity = 0
-	}
 	_ = s.productRepo.Update(ctx, product)
 
 	log := &domain.InventoryLog{
@@ -266,6 +293,32 @@ func (s *inventoryService) RegisterOutbound(ctx context.Context, op domain.Outbo
 		totalAvailable += b.Quantity
 	}
 
+	if product.Quantity < op.Quantity {
+		return nil, domain.ErrInsufficientStock
+	}
+
+	// Si el producto tiene stock suficiente pero no estaba segmentado en lotes (ej. compras iniciales o ajustes),
+	// creamos un lote de regularización para que la salida y el control FEFO/FIFO continúen normalmente.
+	if totalAvailable < op.Quantity {
+		missingStock := product.Quantity - totalAvailable
+		if missingStock > 0 {
+			now := time.Now()
+			autoBatch := &domain.InventoryBatch{
+				ID:          uuid.New(),
+				ProductID:   product.ID,
+				BatchNumber: fmt.Sprintf("LOTE-GRAL-%s", uuid.New().String()[:4]),
+				Quantity:    missingStock,
+				Cost:        &product.Cost,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			if err := s.repo.CreateBatch(ctx, autoBatch); err == nil {
+				availableBatches = append(availableBatches, autoBatch)
+				totalAvailable += missingStock
+			}
+		}
+	}
+
 	if op.Quantity > totalAvailable {
 		return nil, domain.ErrInsufficientStock
 	}
@@ -372,6 +425,30 @@ func (s *inventoryService) RegisterSupplierReturn(ctx context.Context, op domain
 		totalAvailable += b.Quantity
 	}
 
+	if product.Quantity < op.Quantity {
+		return nil, domain.ErrInsufficientStock
+	}
+
+	if totalAvailable < op.Quantity && (op.BatchID == nil || *op.BatchID == uuid.Nil) {
+		missingStock := product.Quantity - totalAvailable
+		if missingStock > 0 {
+			now := time.Now()
+			autoBatch := &domain.InventoryBatch{
+				ID:          uuid.New(),
+				ProductID:   product.ID,
+				BatchNumber: fmt.Sprintf("LOTE-GRAL-%s", uuid.New().String()[:4]),
+				Quantity:    missingStock,
+				Cost:        &product.Cost,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			if err := s.repo.CreateBatch(ctx, autoBatch); err == nil {
+				targetBatches = append(targetBatches, autoBatch)
+				totalAvailable += missingStock
+			}
+		}
+	}
+
 	if op.Quantity > totalAvailable {
 		return nil, domain.ErrInsufficientStock
 	}
@@ -467,21 +544,20 @@ func (s *inventoryService) UndoLog(ctx context.Context, logID uuid.UUID) (*domai
 	now := time.Now()
 	quantityChange := 0
 
+	if originalLog.Type == domain.LogTypeInbound {
+		quantityChange = -originalLog.Quantity
+	} else if originalLog.Type == domain.LogTypeOutbound || originalLog.Type == domain.LogTypeSupplierReturn {
+		quantityChange = originalLog.Quantity
+	} else if originalLog.Type == domain.LogTypeAdjustment {
+		quantityChange = originalLog.PreviousStock - originalLog.NewStock
+	}
+
 	if originalLog.BatchID != nil {
 		batch, err := s.repo.GetBatchByID(ctx, *originalLog.BatchID)
 		if err == nil && batch != nil {
-			if originalLog.Type == domain.LogTypeInbound {
-				batch.Quantity -= originalLog.Quantity
-				if batch.Quantity < 0 {
-					batch.Quantity = 0
-				}
-				quantityChange = -originalLog.Quantity
-			} else if originalLog.Type == domain.LogTypeOutbound || originalLog.Type == domain.LogTypeSupplierReturn {
-				batch.Quantity += originalLog.Quantity
-				quantityChange = originalLog.Quantity
-			} else if originalLog.Type == domain.LogTypeAdjustment {
-				quantityChange = originalLog.PreviousStock - originalLog.NewStock
-				batch.Quantity = originalLog.PreviousStock
+			batch.Quantity += quantityChange
+			if batch.Quantity < 0 {
+				batch.Quantity = 0
 			}
 			_ = s.repo.UpdateBatchQuantity(ctx, batch.ID, batch.Quantity)
 		}

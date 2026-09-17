@@ -2,12 +2,14 @@ package api
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"api-go/internal/inventory/application"
 	"api-go/internal/inventory/domain"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
@@ -23,11 +25,20 @@ func getUserInfo(c fiber.Ctx) (string, string) {
 	userID := "1"
 	userName := "Sistema"
 
-	if id, ok := c.Locals("user_id").(string); ok && id != "" {
-		userID = id
-	}
-	if name, ok := c.Locals("user_name").(string); ok && name != "" {
-		userName = name
+	if userClaims, ok := c.Locals("user").(jwt.MapClaims); ok {
+		if id, ok := userClaims["user_id"].(string); ok && id != "" {
+			userID = id
+		}
+		if email, ok := userClaims["email"].(string); ok && email != "" {
+			userName = email
+		}
+	} else {
+		if id, ok := c.Locals("user_id").(string); ok && id != "" {
+			userID = id
+		}
+		if name, ok := c.Locals("user_name").(string); ok && name != "" {
+			userName = name
+		}
 	}
 
 	return userID, userName
@@ -172,10 +183,56 @@ func (h *InventoryHandler) QuickAdjust(c fiber.Ctx) error {
 	return c.JSON(logs)
 }
 
+type inboundBodyRequest struct {
+	ProductID      uuid.UUID  `json:"productId"`
+	VariantID      *uuid.UUID `json:"variantId,omitempty"`
+	BatchID        *uuid.UUID `json:"batchId,omitempty"`
+	Quantity       int        `json:"quantity"`
+	Reason         string     `json:"reason"`
+	ReasonType     *string    `json:"reasonType,omitempty"`
+	Notes          *string    `json:"notes,omitempty"`
+	BatchNumber    *string    `json:"batchNumber,omitempty"`
+	ExpirationDate *string    `json:"expirationDate,omitempty"`
+	SupplierName   *string    `json:"supplierName,omitempty"`
+	InvoiceNumber  *string    `json:"invoiceNumber,omitempty"`
+	Cost           *float64   `json:"cost,omitempty"`
+	EstimatedCost  *float64   `json:"estimatedCost,omitempty"`
+}
+
 func (h *InventoryHandler) RegisterInbound(c fiber.Ctx) error {
-	var op domain.InboundOperation
-	if err := c.Bind().Body(&op); err != nil {
+	var req inboundBodyRequest
+	if err := c.Bind().Body(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Datos inválidos: " + err.Error()})
+	}
+
+	var parsedExpiration *time.Time
+	if req.ExpirationDate != nil && *req.ExpirationDate != "" {
+		str := strings.TrimSpace(*req.ExpirationDate)
+		if t, err := time.Parse("2006-01-02", str); err == nil {
+			parsedExpiration = &t
+		} else if t, err := time.Parse(time.RFC3339, str); err == nil {
+			parsedExpiration = &t
+		} else if t, err := time.Parse("2006-01-02T15:04:05", str); err == nil {
+			parsedExpiration = &t
+		}
+	}
+
+	op := domain.InboundOperation{
+		StockOperation: domain.StockOperation{
+			ProductID:  req.ProductID,
+			VariantID:  req.VariantID,
+			BatchID:    req.BatchID,
+			Quantity:   req.Quantity,
+			Reason:     req.Reason,
+			ReasonType: req.ReasonType,
+			Notes:      req.Notes,
+		},
+		BatchNumber:    req.BatchNumber,
+		ExpirationDate: parsedExpiration,
+		SupplierName:   req.SupplierName,
+		InvoiceNumber:  req.InvoiceNumber,
+		Cost:           req.Cost,
+		EstimatedCost:  req.EstimatedCost,
 	}
 
 	userID, userName := getUserInfo(c)
