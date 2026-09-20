@@ -24,3 +24,21 @@ type Customer struct {
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
 }
+
+// CustomerFilters contiene los criterios de filtrado para la consulta paginada.
+type CustomerFilters struct {
+	Search        string   // Búsqueda global en name, documentNumber, businessName, email, phone, mobilePhone
+	DocumentTypes []string // nit | ci | passport | other
+	Statuses      []string // active | inactive | suspended
+	City          string
+}
+
+// PaginatedCustomerResult contiene los resultados paginados de clientes.
+type PaginatedCustomerResult struct {
+	Data       []*Customer
+	Total      int64
+	Page       int
+	Limit      int
+	TotalPages int
+}
+
