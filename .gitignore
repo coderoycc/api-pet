@@ -42,6 +42,10 @@ bin/
 dist/
 *.out
 
+# Air (hot reload) temporary files
+tmp/
+build.log
+
 # Environment variables
 .env
 .env.local
