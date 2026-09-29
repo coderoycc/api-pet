@@ -118,6 +118,11 @@ func (h *WarehouseHandler) Delete(c fiber.Ctx) error {
 				"error": err.Error(),
 			})
 		}
+		if errors.Is(err, domain.ErrWarehouseInUse) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Internal server error or invalid ID",
 		})

@@ -154,7 +154,7 @@ func (h *RoleHandler) DeleteRole(c fiber.Ctx) error {
 		})
 	}
 
-	return c.SendStatus(fiber.StatusOK)
+	return c.SendStatus(fiber.StatusNoContent)
 }
 
 func toRoleDto(role *domain.Role) application.RoleDto {

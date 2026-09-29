@@ -104,6 +104,15 @@ func (r *warehouseRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (r *warehouseRepository) HasPurchasesAssigned(ctx context.Context, id uuid.UUID) (bool, error) {
+	var count int64
+	err := r.db.WithContext(ctx).Table("purchases").Where("warehouse_id = ?", id).Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func toWarehouseDomain(m *warehouseModel) *domain.Warehouse {
 	return &domain.Warehouse{
 		ID:        m.ID,

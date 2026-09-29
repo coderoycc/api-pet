@@ -2,6 +2,8 @@ package api
 
 import (
 	"errors"
+	"strconv"
+	"strings"
 
 	"api-go/internal/suppliers/application"
 	"api-go/internal/suppliers/domain"
@@ -72,7 +74,21 @@ func (h *SupplierHandler) GetByID(c fiber.Ctx) error {
 }
 
 func (h *SupplierHandler) GetAll(c fiber.Ctx) error {
-	suppliers, err := h.svc.GetAll(c.Context())
+	search := c.Query("search")
+	var statusPtr *bool
+	statusParam := c.Query("status")
+	if statusParam != "" {
+		if val, err := strconv.ParseBool(statusParam); err == nil {
+			statusPtr = &val
+		}
+	}
+
+	filters := &domain.SupplierFilters{
+		Search: strings.TrimSpace(search),
+		Status: statusPtr,
+	}
+
+	suppliers, err := h.svc.GetAll(c.Context(), filters)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Internal server error",
@@ -145,6 +161,11 @@ func (h *SupplierHandler) Delete(c fiber.Ctx) error {
 	if err != nil {
 		if errors.Is(err, domain.ErrSupplierNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": err.Error(),
+			})
+		}
+		if errors.Is(err, domain.ErrSupplierInUse) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
 				"error": err.Error(),
 			})
 		}

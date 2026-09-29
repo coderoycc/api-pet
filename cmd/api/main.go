@@ -18,6 +18,7 @@ import (
 	userPostgres "api-go/internal/user/infrastructure/persistence/postgres"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/cors"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -52,6 +53,12 @@ func main() {
 
 	app := fiber.New()
 
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: []string{"*"},
+		AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		AllowMethods: []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
+	}))
+
 	user.Register(app.Group("/users"), db)
 	auth.Register(app.Group("/auth"), db, jwtSecret)
 
@@ -65,6 +72,7 @@ func main() {
 	settingsGroup := app.Group("/settings")
 	settings.RegisterUnitOfMeasure(settingsGroup, db, authMiddleware, settingsRoleMiddleware)
 	settings.RegisterWarehouse(settingsGroup, db, authMiddleware, settingsRoleMiddleware)
+	user.RegisterRoles(settingsGroup, db, authMiddleware, settingsRoleMiddleware)
 
 	suppliers.RegisterSuppliers(app.Group("/api/v1"), db, authMiddleware, roleMiddleware)
 	productRepo := products.RegisterProducts(app.Group("/api/v1"), db, authMiddleware, roleMiddleware)

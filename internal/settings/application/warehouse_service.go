@@ -79,6 +79,14 @@ func (s *WarehouseService) Delete(ctx context.Context, idStr string) error {
 		return err
 	}
 
+	inUse, err := s.repo.HasPurchasesAssigned(ctx, id)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return domain.ErrWarehouseInUse
+	}
+
 	return s.repo.Delete(ctx, id)
 }
 

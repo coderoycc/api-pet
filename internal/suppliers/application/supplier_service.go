@@ -12,7 +12,7 @@ import (
 type SupplierService interface {
 	Create(ctx context.Context, dto CreateSupplierDTO) (*SupplierResponseDTO, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*SupplierResponseDTO, error)
-	GetAll(ctx context.Context) ([]*SupplierResponseDTO, error)
+	GetAll(ctx context.Context, filters *domain.SupplierFilters) ([]*SupplierResponseDTO, error)
 	Update(ctx context.Context, id uuid.UUID, dto UpdateSupplierDTO) error
 	Delete(ctx context.Context, id uuid.UUID) error
 }
@@ -53,13 +53,13 @@ func (s *supplierService) GetByID(ctx context.Context, id uuid.UUID) (*SupplierR
 	return toSupplierResponseDTO(supplier), nil
 }
 
-func (s *supplierService) GetAll(ctx context.Context) ([]*SupplierResponseDTO, error) {
-	suppliers, err := s.repo.GetAll(ctx)
+func (s *supplierService) GetAll(ctx context.Context, filters *domain.SupplierFilters) ([]*SupplierResponseDTO, error) {
+	suppliers, err := s.repo.GetAll(ctx, filters)
 	if err != nil {
 		return nil, err
 	}
 
-	var dtos []*SupplierResponseDTO
+	dtos := make([]*SupplierResponseDTO, 0, len(suppliers))
 	for _, supplier := range suppliers {
 		dtos = append(dtos, toSupplierResponseDTO(supplier))
 	}
@@ -84,6 +84,14 @@ func (s *supplierService) Update(ctx context.Context, id uuid.UUID, dto UpdateSu
 }
 
 func (s *supplierService) Delete(ctx context.Context, id uuid.UUID) error {
+	inUse, err := s.repo.IsInUse(ctx, id)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return domain.ErrSupplierInUse
+	}
+
 	return s.repo.Delete(ctx, id)
 }
 
