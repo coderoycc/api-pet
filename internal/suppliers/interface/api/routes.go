@@ -9,8 +9,8 @@ func RegisterSupplierRoutes(router fiber.Router, handler *SupplierHandler, authM
 
 	// Configuración de rutas
 	group.Post("/", handler.Create, roleMiddleware)
-	group.Get("/:id", handler.GetByID)
 	group.Get("/", handler.GetAll)
+	group.Get("/:id", handler.GetByID)
 	group.Put("/:id", handler.Update, roleMiddleware)
 	group.Delete("/:id", handler.Delete, roleMiddleware)
 }

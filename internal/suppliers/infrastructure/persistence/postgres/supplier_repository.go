@@ -64,9 +64,21 @@ func (r *supplierRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain
 	return toSupplierDomain(&model), nil
 }
 
-func (r *supplierRepository) GetAll(ctx context.Context) ([]*domain.Supplier, error) {
+func (r *supplierRepository) GetAll(ctx context.Context, filters *domain.SupplierFilters) ([]*domain.Supplier, error) {
 	var models []supplierModel
-	err := r.db.WithContext(ctx).Order("created_at DESC").Find(&models).Error
+	query := r.db.WithContext(ctx)
+
+	if filters != nil {
+		if strings.TrimSpace(filters.Search) != "" {
+			searchVal := "%" + strings.ToLower(strings.TrimSpace(filters.Search)) + "%"
+			query = query.Where("LOWER(name) LIKE ? OR LOWER(tax_id) LIKE ? OR LOWER(contact_email) LIKE ?", searchVal, searchVal, searchVal)
+		}
+		if filters.Status != nil {
+			query = query.Where("status = ?", *filters.Status)
+		}
+	}
+
+	err := query.Order("created_at DESC").Find(&models).Error
 	if err != nil {
 		return nil, err
 	}
@@ -107,6 +119,17 @@ func (r *supplierRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		return domain.ErrSupplierNotFound
 	}
 	return nil
+}
+
+func (r *supplierRepository) IsInUse(ctx context.Context, id uuid.UUID) (bool, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Table("purchases").Where("supplier_id = ?", id).Count(&count).Error; err == nil && count > 0 {
+		return true, nil
+	}
+	if err := r.db.WithContext(ctx).Table("products").Where("supplier_id = ?", id).Count(&count).Error; err == nil && count > 0 {
+		return true, nil
+	}
+	return false, nil
 }
 
 func toSupplierDomain(m *supplierModel) *domain.Supplier {

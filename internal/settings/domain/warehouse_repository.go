@@ -12,4 +12,5 @@ type WarehouseRepository interface {
 	GetAll(ctx context.Context) ([]*Warehouse, error)
 	Update(ctx context.Context, w *Warehouse) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	HasPurchasesAssigned(ctx context.Context, id uuid.UUID) (bool, error)
 }
