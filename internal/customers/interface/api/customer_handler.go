@@ -25,30 +25,12 @@ func NewCustomerHandler(service *application.CustomerService) *CustomerHandler {
 func (h *CustomerHandler) Create(c fiber.Ctx) error {
 	var dto application.CustomerCreateDTO
 	if err := c.Bind().Body(&dto); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"statusCode": fiber.StatusBadRequest,
-			"message":    "Invalid request payload",
-		})
+		return respondError(c, fiber.StatusBadRequest, "Invalid request payload")
 	}
 
 	customer, err := h.service.CreateCustomer(c.Context(), dto)
 	if err != nil {
-		if errors.Is(err, domain.ErrCustomerDocumentExists) {
-			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
-				"statusCode": fiber.StatusConflict,
-				"message":    "Ya existe un cliente registrado con el número de documento " + dto.DocumentNumber,
-			})
-		}
-		if errors.Is(err, domain.ErrInvalidCustomerDocumentType) {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"statusCode": fiber.StatusBadRequest,
-				"message":    err.Error(),
-			})
-		}
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"statusCode": fiber.StatusBadRequest,
-			"message":    err.Error(),
-		})
+		return handleCustomerError(c, err, dto.DocumentNumber)
 	}
 
 	return c.Status(fiber.StatusCreated).JSON(customer)
@@ -57,27 +39,14 @@ func (h *CustomerHandler) Create(c fiber.Ctx) error {
 // GetByID obtiene un cliente por su ID.
 // GET /api/v1/customers/:id
 func (h *CustomerHandler) GetByID(c fiber.Ctx) error {
-	idParam := c.Params("id")
-	id, err := uuid.Parse(idParam)
+	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"statusCode": fiber.StatusBadRequest,
-			"message":    "Invalid customer ID format",
-		})
+		return respondError(c, fiber.StatusBadRequest, "Invalid customer ID format")
 	}
 
 	customer, err := h.service.GetCustomerByID(c.Context(), id)
 	if err != nil {
-		if errors.Is(err, domain.ErrCustomerNotFound) {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"statusCode": fiber.StatusNotFound,
-				"message":    "Cliente no encontrado",
-			})
-		}
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"statusCode": fiber.StatusInternalServerError,
-			"message":    "Failed to retrieve customer",
-		})
+		return handleCustomerError(c, err, "")
 	}
 
 	return c.JSON(customer)
@@ -86,52 +55,11 @@ func (h *CustomerHandler) GetByID(c fiber.Ctx) error {
 // GetCustomers retorna el listado paginado de clientes con filtros y ordenamiento.
 // GET /api/v1/customers
 func (h *CustomerHandler) GetCustomers(c fiber.Ctx) error {
-	page, _ := strconv.Atoi(c.Query("page", "1"))
-	// Soporta tanto "limit" como "pageSize"
-	limitStr := c.Query("limit", c.Query("pageSize", "10"))
-	limit, _ := strconv.Atoi(limitStr)
-
-	sortBy := c.Query("sortBy", "createdAt")
-
-	// Soporta tanto "descending" (bool) como "sortOrder" (asc/desc)
-	descending := false
-	if d := c.Query("descending"); d == "true" {
-		descending = true
-	} else if so := c.Query("sortOrder"); strings.ToLower(so) == "desc" {
-		descending = true
-	}
-
-	filters := &domain.CustomerFilters{
-		Search: strings.TrimSpace(c.Query("search")),
-		City:   strings.TrimSpace(c.Query("city")),
-	}
-
-	// Soporta documentTypes como CSV o parámetros múltiples
-	if dtRaw := c.Query("documentTypes"); dtRaw != "" {
-		for _, dt := range strings.Split(dtRaw, ",") {
-			dt = strings.TrimSpace(dt)
-			if dt != "" {
-				filters.DocumentTypes = append(filters.DocumentTypes, dt)
-			}
-		}
-	}
-
-	// Soporta statuses como CSV o parámetros múltiples
-	if stRaw := c.Query("statuses"); stRaw != "" {
-		for _, st := range strings.Split(stRaw, ",") {
-			st = strings.TrimSpace(st)
-			if st != "" {
-				filters.Statuses = append(filters.Statuses, st)
-			}
-		}
-	}
+	page, limit, filters, sortBy, descending := parseCustomerListQuery(c)
 
 	res, err := h.service.GetCustomers(c.Context(), page, limit, filters, sortBy, descending)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"statusCode": fiber.StatusInternalServerError,
-			"message":    "Failed to retrieve customers",
-		})
+		return respondError(c, fiber.StatusInternalServerError, "Failed to retrieve customers")
 	}
 
 	return c.JSON(res)
@@ -140,18 +68,13 @@ func (h *CustomerHandler) GetCustomers(c fiber.Ctx) error {
 // Search retorna una lista ligera de clientes para autocompletado en selectores.
 // GET /api/v1/customers/search
 func (h *CustomerHandler) Search(c fiber.Ctx) error {
-	// Soporta tanto "q" como "search"
 	query := strings.TrimSpace(c.Query("q", c.Query("search")))
-	limitStr := c.Query("limit", "10")
-	limit, _ := strconv.Atoi(limitStr)
-	status := c.Query("status", "active")
+	limit, _ := strconv.Atoi(c.Query("limit", "10"))
+	status := c.Query("status", domain.StatusActive)
 
 	results, err := h.service.SearchCustomers(c.Context(), query, limit, status)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"statusCode": fiber.StatusInternalServerError,
-			"message":    "Failed to search customers",
-		})
+		return respondError(c, fiber.StatusInternalServerError, "Failed to search customers")
 	}
 
 	return c.JSON(results)
@@ -162,10 +85,7 @@ func (h *CustomerHandler) Search(c fiber.Ctx) error {
 func (h *CustomerHandler) GetCities(c fiber.Ctx) error {
 	cities, err := h.service.GetDistinctCities(c.Context())
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"statusCode": fiber.StatusInternalServerError,
-			"message":    "Failed to retrieve cities",
-		})
+		return respondError(c, fiber.StatusInternalServerError, "Failed to retrieve cities")
 	}
 
 	return c.JSON(cities)
@@ -174,47 +94,19 @@ func (h *CustomerHandler) GetCities(c fiber.Ctx) error {
 // Update actualiza un cliente existente.
 // PUT /api/v1/customers/:id
 func (h *CustomerHandler) Update(c fiber.Ctx) error {
-	idParam := c.Params("id")
-	id, err := uuid.Parse(idParam)
+	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"statusCode": fiber.StatusBadRequest,
-			"message":    "Invalid customer ID format",
-		})
+		return respondError(c, fiber.StatusBadRequest, "Invalid customer ID format")
 	}
 
 	var dto application.CustomerUpdateDTO
 	if err := c.Bind().Body(&dto); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"statusCode": fiber.StatusBadRequest,
-			"message":    "Invalid request payload",
-		})
+		return respondError(c, fiber.StatusBadRequest, "Invalid request payload")
 	}
 
 	customer, err := h.service.UpdateCustomer(c.Context(), id, dto)
 	if err != nil {
-		if errors.Is(err, domain.ErrCustomerNotFound) {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"statusCode": fiber.StatusNotFound,
-				"message":    "Cliente no encontrado",
-			})
-		}
-		if errors.Is(err, domain.ErrCustomerDocumentExists) {
-			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
-				"statusCode": fiber.StatusConflict,
-				"message":    "Ya existe un cliente registrado con el número de documento " + dto.DocumentNumber,
-			})
-		}
-		if errors.Is(err, domain.ErrInvalidCustomerDocumentType) {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"statusCode": fiber.StatusBadRequest,
-				"message":    err.Error(),
-			})
-		}
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"statusCode": fiber.StatusBadRequest,
-			"message":    err.Error(),
-		})
+		return handleCustomerError(c, err, dto.DocumentNumber)
 	}
 
 	return c.JSON(customer)
@@ -223,37 +115,85 @@ func (h *CustomerHandler) Update(c fiber.Ctx) error {
 // Delete elimina un cliente por su ID (con verificación de integridad referencial).
 // DELETE /api/v1/customers/:id
 func (h *CustomerHandler) Delete(c fiber.Ctx) error {
-	idParam := c.Params("id")
-	id, err := uuid.Parse(idParam)
+	id, err := parseUUIDParam(c, "id")
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"statusCode": fiber.StatusBadRequest,
-			"message":    "Invalid customer ID format",
-		})
+		return respondError(c, fiber.StatusBadRequest, "Invalid customer ID format")
 	}
 
-	err = h.service.DeleteCustomer(c.Context(), id)
-	if err != nil {
-		if errors.Is(err, domain.ErrCustomerNotFound) {
-			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
-				"statusCode": fiber.StatusNotFound,
-				"message":    "Cliente no encontrado",
-			})
-		}
-		if errors.Is(err, domain.ErrCustomerHasAssociatedRecords) {
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"statusCode": fiber.StatusBadRequest,
-				"message":    "El cliente tiene registros asociados y no puede ser eliminado",
-			})
-		}
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"statusCode": fiber.StatusInternalServerError,
-			"message":    "Failed to delete customer",
-		})
+	if err := h.service.DeleteCustomer(c.Context(), id); err != nil {
+		return handleCustomerError(c, err, "")
 	}
 
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"success": true,
-		"message": "Cliente eliminado exitosamente",
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+// --- Helpers HTTP ---
+
+func parseUUIDParam(c fiber.Ctx, param string) (uuid.UUID, error) {
+	return uuid.Parse(c.Params(param))
+}
+
+func parseCustomerListQuery(c fiber.Ctx) (int, int, *domain.CustomerFilters, string, bool) {
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	limitStr := c.Query("limit", c.Query("pageSize", "10"))
+	limit, _ := strconv.Atoi(limitStr)
+	sortBy := c.Query("sortBy", "createdAt")
+
+	descending := false
+	if c.Query("descending") == "true" || strings.ToLower(c.Query("sortOrder")) == "desc" {
+		descending = true
+	}
+
+	filters := &domain.CustomerFilters{
+		Search:        strings.TrimSpace(c.Query("search")),
+		City:          strings.TrimSpace(c.Query("city")),
+		DocumentTypes: splitCSV(c.Query("documentTypes")),
+		Statuses:      splitCSV(c.Query("statuses")),
+	}
+
+	return page, limit, filters, sortBy, descending
+}
+
+func splitCSV(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var items []string
+	for _, part := range strings.Split(raw, ",") {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			items = append(items, trimmed)
+		}
+	}
+	return items
+}
+
+func respondError(c fiber.Ctx, status int, message string) error {
+	return c.Status(status).JSON(fiber.Map{
+		"statusCode": status,
+		"message":    message,
 	})
+}
+
+func handleCustomerError(c fiber.Ctx, err error, docNumber string) error {
+	switch {
+	case errors.Is(err, domain.ErrCustomerNotFound):
+		return respondError(c, fiber.StatusNotFound, "Cliente no encontrado")
+	case errors.Is(err, domain.ErrCustomerDocumentExists):
+		msg := "Ya existe un cliente registrado con ese número de documento"
+		if docNumber != "" {
+			msg = "Ya existe un cliente registrado con el número de documento " + docNumber
+		}
+		return respondError(c, fiber.StatusConflict, msg)
+	case errors.Is(err, domain.ErrCustomerHasAssociatedRecords):
+		return respondError(c, fiber.StatusBadRequest, "El cliente tiene registros asociados y no puede ser eliminado")
+	case errors.Is(err, domain.ErrCustomerNameRequired),
+		errors.Is(err, domain.ErrCustomerDocumentTypeRequired),
+		errors.Is(err, domain.ErrCustomerDocumentNumberRequired),
+		errors.Is(err, domain.ErrInvalidCustomerDocumentType),
+		errors.Is(err, domain.ErrInvalidCustomerStatus),
+		errors.Is(err, domain.ErrInvalidCustomerEmail):
+		return respondError(c, fiber.StatusBadRequest, err.Error())
+	default:
+		return respondError(c, fiber.StatusInternalServerError, "Error interno al procesar la solicitud")
+	}
 }

@@ -54,6 +54,40 @@ func (h *Handler) Login(c fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(res)
 }
 
+func (h *Handler) Register(c fiber.Ctx) error {
+	var req domain.RegisterRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if req.Email == "" || req.Password == "" || req.Name == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Name, email and password are required",
+		})
+	}
+
+	res, err := h.authService.Register(c.Context(), &req)
+	if err != nil {
+		if errors.Is(err, domain.ErrEmailAlreadyExists) {
+			return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+				"error": "Email already registered",
+			})
+		}
+		if errors.Is(err, domain.ErrInvalidInput) {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"error": "Invalid input data",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Internal server error",
+		})
+	}
+
+	return c.Status(fiber.StatusCreated).JSON(res)
+}
+
 func (h *Handler) Logout(c fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Successfully logged out",

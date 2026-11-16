@@ -7,4 +7,6 @@ var (
 	ErrInvalidToken       = errors.New("invalid token or session expired")
 	ErrUserSuspended      = errors.New("user account is suspended")
 	ErrUserDeleted        = errors.New("user account is deleted")
+	ErrEmailAlreadyExists = errors.New("email already registered")
+	ErrInvalidInput       = errors.New("invalid input data")
 )

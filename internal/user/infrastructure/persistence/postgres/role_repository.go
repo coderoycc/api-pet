@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
 	"api-go/internal/user/domain"
 
 	"gorm.io/gorm"
@@ -62,6 +63,18 @@ func (r *roleRepository) Delete(ctx context.Context, id uint) error {
 func (r *roleRepository) FindByID(ctx context.Context, id uint) (*domain.Role, error) {
 	var model roleModel
 	err := r.db.WithContext(ctx).First(&model, "id = ?", id).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, domain.ErrNotFound
+		}
+		return nil, err
+	}
+	return toRoleDomain(&model), nil
+}
+
+func (r *roleRepository) FindByName(ctx context.Context, name string) (*domain.Role, error) {
+	var model roleModel
+	err := r.db.WithContext(ctx).First(&model, "LOWER(name) = LOWER(?)", strings.TrimSpace(name)).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrNotFound

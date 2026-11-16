@@ -7,6 +7,7 @@ type RoleRepository interface {
 	Update(ctx context.Context, role *Role) error
 	Delete(ctx context.Context, id uint) error
 	FindByID(ctx context.Context, id uint) (*Role, error)
+	FindByName(ctx context.Context, name string) (*Role, error)
 	FindAll(ctx context.Context) ([]Role, error)
 	HasUsersAssigned(ctx context.Context, id uint) (bool, error)
 }

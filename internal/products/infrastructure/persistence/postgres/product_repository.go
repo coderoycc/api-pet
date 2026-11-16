@@ -14,29 +14,46 @@ import (
 )
 
 type productModel struct {
-	ID          uuid.UUID           `gorm:"type:uuid;primaryKey"`
-	SKU         string              `gorm:"type:varchar(100);not null;uniqueIndex"`
-	Name        string              `gorm:"type:varchar(255);not null"`
-	Description string              `gorm:"type:text"`
-	Category    string              `gorm:"type:varchar(100)"`
-	Subcategory string              `gorm:"type:varchar(100)"`
-	Price       float64             `gorm:"type:decimal(10,2);not null"`
-	Cost        float64             `gorm:"type:decimal(10,2);not null"`
-	Quantity    int                 `gorm:"not null"`
-	MinQuantity int                 `gorm:"not null"`
-	MaxQuantity *int                
-	Unit        string              `gorm:"type:varchar(50)"`
-	Status      string              `gorm:"type:varchar(50)"`
-	SupplierID  *uuid.UUID          `gorm:"type:uuid"`
-	Tags        []string            `gorm:"type:jsonb;serializer:json"`
-	Images      []productImageModel `gorm:"foreignKey:ProductID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	Batches     []productBatchModel `gorm:"foreignKey:ProductID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
-	CreatedAt   time.Time           `gorm:"not null"`
-	UpdatedAt   time.Time           `gorm:"not null"`
+	ID            uuid.UUID                  `gorm:"type:uuid;primaryKey"`
+	SKU           string                     `gorm:"type:varchar(100);not null;uniqueIndex"`
+	Name          string                     `gorm:"type:varchar(255);not null"`
+	Description   string                     `gorm:"type:text"`
+	Category      string                     `gorm:"type:varchar(100)"`
+	Subcategory   string                     `gorm:"type:varchar(100)"`
+	Price         float64                    `gorm:"type:decimal(10,2);not null"`
+	Cost          float64                    `gorm:"type:decimal(10,2);not null"`
+	Quantity      float64                    `gorm:"type:decimal(12,3);not null"`
+	MinQuantity   float64                    `gorm:"type:decimal(12,3);not null"`
+	MaxQuantity   *float64                   `gorm:"type:decimal(12,3)"`
+	Unit          string                     `gorm:"type:varchar(50)"`
+	Status        string                     `gorm:"type:varchar(50)"`
+	SupplierID    *uuid.UUID                 `gorm:"type:uuid"`
+	Tags          []string                   `gorm:"type:jsonb;serializer:json"`
+	Images        []productImageModel        `gorm:"foreignKey:ProductID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Presentations []productPresentationModel `gorm:"foreignKey:ProductID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	Batches       []productBatchModel        `gorm:"foreignKey:ProductID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;"`
+	CreatedAt     time.Time                  `gorm:"not null"`
+	UpdatedAt     time.Time                  `gorm:"not null"`
 }
 
 func (productModel) TableName() string {
 	return "products"
+}
+
+type productPresentationModel struct {
+	ID               uuid.UUID `gorm:"type:uuid;primaryKey"`
+	ProductID        uuid.UUID `gorm:"type:uuid;not null;index"`
+	Name             string    `gorm:"type:varchar(100);not null"`
+	Barcode          string    `gorm:"type:varchar(100)"`
+	ConversionFactor float64   `gorm:"type:decimal(10,3);not null;default:1"`
+	SalePrice        float64   `gorm:"type:decimal(10,2);not null"`
+	IsDefault        bool      `gorm:"default:false"`
+	CreatedAt        time.Time `gorm:"not null"`
+	UpdatedAt        time.Time `gorm:"not null"`
+}
+
+func (productPresentationModel) TableName() string {
+	return "product_presentations"
 }
 
 type productImageModel struct {
@@ -56,7 +73,7 @@ type productBatchModel struct {
 	ProductID      uuid.UUID  `gorm:"type:uuid;not null;index"`
 	BatchNumber    string     `gorm:"type:varchar(100);not null"`
 	ExpirationDate time.Time  `gorm:"type:date;not null"`
-	Quantity       int        `gorm:"not null"`
+	Quantity       float64    `gorm:"type:decimal(12,3);not null"`
 	SupplierID     *uuid.UUID `gorm:"type:uuid"`
 }
 
@@ -73,7 +90,7 @@ func NewProductRepository(db *gorm.DB) domain.ProductRepository {
 }
 
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(&productModel{}, &productImageModel{}, &productBatchModel{})
+	return db.AutoMigrate(&productModel{}, &productImageModel{}, &productPresentationModel{}, &productBatchModel{})
 }
 
 func (r *productRepository) Create(ctx context.Context, product *domain.Product) error {
@@ -90,7 +107,7 @@ func (r *productRepository) Create(ctx context.Context, product *domain.Product)
 
 func (r *productRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Product, error) {
 	var model productModel
-	err := r.db.WithContext(ctx).Preload("Images").Preload("Batches").First(&model, "id = ?", id).Error
+	err := r.db.WithContext(ctx).Preload("Images").Preload("Presentations").Preload("Batches").First(&model, "id = ?", id).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, domain.ErrProductNotFound
@@ -150,7 +167,7 @@ func (r *productRepository) GetAll(ctx context.Context, page, limit int, filters
 	}
 
 	offset := (page - 1) * limit
-	err = query.Preload("Images").Offset(offset).Limit(limit).Find(&models).Error
+	err = query.Preload("Images").Preload("Presentations").Offset(offset).Limit(limit).Find(&models).Error
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +224,15 @@ func (r *productRepository) Update(ctx context.Context, product *domain.Product)
 			}
 		}
 
+		if len(model.Presentations) > 0 {
+			if err := tx.Where("product_id = ?", product.ID).Delete(&productPresentationModel{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&model.Presentations).Error; err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
 }
@@ -238,7 +264,7 @@ func (r *productRepository) UpdateStatus(ctx context.Context, id uuid.UUID, stat
 
 func (r *productRepository) GetProductsByCategory(ctx context.Context, category string) ([]*domain.Product, error) {
 	var models []productModel
-	err := r.db.WithContext(ctx).Preload("Images").Where("LOWER(category) = ?", strings.ToLower(category)).Find(&models).Error
+	err := r.db.WithContext(ctx).Preload("Images").Preload("Presentations").Where("LOWER(category) = ?", strings.ToLower(category)).Find(&models).Error
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +285,6 @@ func (r *productRepository) GetExpiringProducts(ctx context.Context, filters *do
 	cutoff := now.AddDate(0, 0, daysAhead)
 
 	query := r.db.WithContext(ctx).Model(&productBatchModel{}).
-		Preload("Product"). // Assuming we need product details, wait, we don't have Product relation setup in struct yet, let's just do a join.
 		Joins("JOIN products ON products.id = product_batches.product_id").
 		Joins("LEFT JOIN suppliers ON suppliers.id = products.supplier_id").
 		Select("product_batches.*, products.name as product_name, products.sku as product_sku, products.category as product_category, products.unit as product_unit, suppliers.name as supplier_name").
@@ -291,7 +316,7 @@ func (r *productRepository) GetExpiringProducts(ctx context.Context, filters *do
 		return nil, 0, err
 	}
 
-	var expiringProducts []*domain.ExpiringProduct
+	expiringProducts := make([]*domain.ExpiringProduct, 0, len(results))
 	for _, r := range results {
 		daysUntil := int(math.Ceil(r.ExpirationDate.Sub(now).Hours() / 24))
 		urgency := "normal"
@@ -378,6 +403,23 @@ func toProductDomain(m *productModel) *domain.Product {
 		}
 	}
 
+	if len(m.Presentations) > 0 {
+		p.Presentations = make([]domain.ProductPresentation, len(m.Presentations))
+		for i, pres := range m.Presentations {
+			p.Presentations[i] = domain.ProductPresentation{
+				ID:               pres.ID,
+				ProductID:        pres.ProductID,
+				Name:             pres.Name,
+				Barcode:          pres.Barcode,
+				ConversionFactor: pres.ConversionFactor,
+				SalePrice:        pres.SalePrice,
+				IsDefault:        pres.IsDefault,
+				CreatedAt:        pres.CreatedAt,
+				UpdatedAt:        pres.UpdatedAt,
+			}
+		}
+	}
+
 	if len(m.Batches) > 0 {
 		p.Batches = make([]domain.ProductBatch, len(m.Batches))
 		for i, batch := range m.Batches {
@@ -425,6 +467,23 @@ func toProductModel(p *domain.Product) *productModel {
 				URL:       img.URL,
 				Alt:       img.Alt,
 				IsPrimary: img.IsPrimary,
+			}
+		}
+	}
+
+	if len(p.Presentations) > 0 {
+		m.Presentations = make([]productPresentationModel, len(p.Presentations))
+		for i, pres := range p.Presentations {
+			m.Presentations[i] = productPresentationModel{
+				ID:               pres.ID,
+				ProductID:        pres.ProductID,
+				Name:             pres.Name,
+				Barcode:          pres.Barcode,
+				ConversionFactor: pres.ConversionFactor,
+				SalePrice:        pres.SalePrice,
+				IsDefault:        pres.IsDefault,
+				CreatedAt:        pres.CreatedAt,
+				UpdatedAt:        pres.UpdatedAt,
 			}
 		}
 	}

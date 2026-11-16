@@ -336,3 +336,54 @@ func TestUpdateCustomer_InvalidDocumentType(t *testing.T) {
 		t.Fatal("expected error for invalid document type, got nil")
 	}
 }
+
+func TestUpdateCustomer_EmptyDocumentNumber(t *testing.T) {
+	id := uuid.New()
+	repo := &mockCustomerRepo{
+		customers: []*domain.Customer{
+			{ID: id, Name: "Test", DocumentType: "ci", DocumentNumber: "12345", Status: "active", CreatedAt: time.Now(), UpdatedAt: time.Now()},
+		},
+	}
+	svc := application.NewCustomerService(repo)
+
+	dto := application.CustomerUpdateDTO{
+		Name:           "Updated",
+		DocumentType:   "ci",
+		DocumentNumber: "   ",
+	}
+
+	_, err := svc.UpdateCustomer(context.Background(), id, dto)
+	if err != domain.ErrCustomerDocumentNumberRequired {
+		t.Fatalf("expected ErrCustomerDocumentNumberRequired, got %v", err)
+	}
+}
+
+func TestCreateCustomer_InvalidStatus(t *testing.T) {
+	repo := &mockCustomerRepo{}
+	svc := application.NewCustomerService(repo)
+
+	dto := newValidCreateDTO()
+	dto.Status = "deleted"
+
+	_, err := svc.CreateCustomer(context.Background(), dto)
+	if err != domain.ErrInvalidCustomerStatus {
+		t.Fatalf("expected ErrInvalidCustomerStatus, got %v", err)
+	}
+}
+
+func TestCreateCustomer_EmptyEmailNormalizedToNil(t *testing.T) {
+	repo := &mockCustomerRepo{}
+	svc := application.NewCustomerService(repo)
+
+	dto := newValidCreateDTO()
+	empty := "   "
+	dto.Email = &empty
+
+	customer, err := svc.CreateCustomer(context.Background(), dto)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if customer.Email != nil {
+		t.Fatalf("expected nil email, got %v", *customer.Email)
+	}
+}

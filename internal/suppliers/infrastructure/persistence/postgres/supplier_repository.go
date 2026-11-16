@@ -15,7 +15,7 @@ import (
 type supplierModel struct {
 	ID           uuid.UUID `gorm:"type:uuid;primaryKey"`
 	Name         string    `gorm:"type:varchar(255);not null"`
-	TaxID        string    `gorm:"type:varchar(50);not null;uniqueIndex"`
+	TaxID        *string   `gorm:"type:varchar(50)"`
 	ContactEmail string    `gorm:"type:varchar(255)"`
 	ContactPhone string    `gorm:"type:varchar(50)"`
 	Address      string    `gorm:"type:text"`
@@ -133,10 +133,14 @@ func (r *supplierRepository) IsInUse(ctx context.Context, id uuid.UUID) (bool, e
 }
 
 func toSupplierDomain(m *supplierModel) *domain.Supplier {
+	taxID := ""
+	if m.TaxID != nil {
+		taxID = *m.TaxID
+	}
 	return &domain.Supplier{
 		ID:           m.ID,
 		Name:         m.Name,
-		TaxID:        m.TaxID,
+		TaxID:        taxID,
 		ContactEmail: m.ContactEmail,
 		ContactPhone: m.ContactPhone,
 		Address:      m.Address,
@@ -147,10 +151,15 @@ func toSupplierDomain(m *supplierModel) *domain.Supplier {
 }
 
 func toSupplierModel(s *domain.Supplier) *supplierModel {
+	var taxIDPtr *string
+	trimmedTax := strings.TrimSpace(s.TaxID)
+	if trimmedTax != "" {
+		taxIDPtr = &trimmedTax
+	}
 	return &supplierModel{
 		ID:           s.ID,
 		Name:         s.Name,
-		TaxID:        s.TaxID,
+		TaxID:        taxIDPtr,
 		ContactEmail: s.ContactEmail,
 		ContactPhone: s.ContactPhone,
 		Address:      s.Address,

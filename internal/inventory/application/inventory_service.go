@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -81,7 +82,7 @@ func (s *inventoryService) AdjustStock(ctx context.Context, req domain.AdjustSto
 		}
 	}
 
-	oldStock := product.Quantity
+	oldStock := int(math.Round(product.Quantity))
 	var diffQuantity int
 
 	if targetBatch != nil {
@@ -95,15 +96,15 @@ func (s *inventoryService) AdjustStock(ctx context.Context, req domain.AdjustSto
 		batchID = &targetBatch.ID
 		batchNumber = &targetBatch.BatchNumber
 
-		product.Quantity += diffQuantity
+		product.Quantity += float64(diffQuantity)
 		if product.Quantity < 0 {
 			product.Quantity = 0
 		}
 	} else {
 		// Ajuste general sobre el producto
-		diffQuantity = req.NewStock - product.Quantity
-		oldStock = product.Quantity
-		product.Quantity = req.NewStock
+		diffQuantity = req.NewStock - int(math.Round(product.Quantity))
+		oldStock = int(math.Round(product.Quantity))
+		product.Quantity = float64(req.NewStock)
 
 		batches, err := s.repo.GetBatchesByProductID(ctx, req.ProductID)
 		if err == nil && len(batches) > 0 {
@@ -238,7 +239,7 @@ func (s *inventoryService) RegisterInbound(ctx context.Context, op domain.Inboun
 	}
 
 	// Update product stock
-	product.Quantity += op.Quantity
+	product.Quantity += float64(op.Quantity)
 	_ = s.productRepo.Update(ctx, product)
 
 	reason := "Entrada de mercadería"
@@ -293,14 +294,14 @@ func (s *inventoryService) RegisterOutbound(ctx context.Context, op domain.Outbo
 		totalAvailable += b.Quantity
 	}
 
-	if product.Quantity < op.Quantity {
+	if product.Quantity < float64(op.Quantity) {
 		return nil, domain.ErrInsufficientStock
 	}
 
 	// Si el producto tiene stock suficiente pero no estaba segmentado en lotes (ej. compras iniciales o ajustes),
 	// creamos un lote de regularización para que la salida y el control FEFO/FIFO continúen normalmente.
 	if totalAvailable < op.Quantity {
-		missingStock := product.Quantity - totalAvailable
+		missingStock := int(math.Round(product.Quantity)) - totalAvailable
 		if missingStock > 0 {
 			now := time.Now()
 			autoBatch := &domain.InventoryBatch{
@@ -387,7 +388,7 @@ func (s *inventoryService) RegisterOutbound(ctx context.Context, op domain.Outbo
 	}
 
 	// Update product stock
-	product.Quantity -= op.Quantity
+	product.Quantity -= float64(op.Quantity)
 	if product.Quantity < 0 {
 		product.Quantity = 0
 	}
@@ -425,12 +426,12 @@ func (s *inventoryService) RegisterSupplierReturn(ctx context.Context, op domain
 		totalAvailable += b.Quantity
 	}
 
-	if product.Quantity < op.Quantity {
+	if product.Quantity < float64(op.Quantity) {
 		return nil, domain.ErrInsufficientStock
 	}
 
 	if totalAvailable < op.Quantity && (op.BatchID == nil || *op.BatchID == uuid.Nil) {
-		missingStock := product.Quantity - totalAvailable
+		missingStock := int(math.Round(product.Quantity)) - totalAvailable
 		if missingStock > 0 {
 			now := time.Now()
 			autoBatch := &domain.InventoryBatch{
@@ -518,7 +519,7 @@ func (s *inventoryService) RegisterSupplierReturn(ctx context.Context, op domain
 	}
 
 	// Update product stock
-	product.Quantity -= op.Quantity
+	product.Quantity -= float64(op.Quantity)
 	if product.Quantity < 0 {
 		product.Quantity = 0
 	}
@@ -564,7 +565,7 @@ func (s *inventoryService) UndoLog(ctx context.Context, logID uuid.UUID) (*domai
 	}
 
 	// Update product overall stock
-	product.Quantity += quantityChange
+	product.Quantity += float64(quantityChange)
 	if product.Quantity < 0 {
 		product.Quantity = 0
 	}

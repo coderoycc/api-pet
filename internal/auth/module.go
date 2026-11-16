@@ -11,7 +11,8 @@ import (
 
 func Register(router fiber.Router, db *gorm.DB, jwtSecret string) {
 	repo := postgres.NewRepository(db)
-	svc := application.NewAuthService(repo, jwtSecret)
+	roleRepo := postgres.NewRoleRepository(db)
+	svc := application.NewAuthService(repo, roleRepo, jwtSecret)
 	handler := api.NewHandler(svc)
 	authMiddleware := api.NewAuthMiddleware(jwtSecret)
 	api.RegisterRoutes(router, handler, authMiddleware)
