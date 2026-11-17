@@ -37,6 +37,7 @@ func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&unitOfMeasureModel{},
 		&warehouseModel{},
+		&appSettingsModel{},
 	)
 }
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"math"
 	"strings"
-	"time"
 
 	"api-go/internal/customers/domain"
 
@@ -25,29 +24,6 @@ var allowedSortColumns = map[string]string{
 	"updated_at":     "updated_at",
 }
 
-type customerModel struct {
-	ID             uuid.UUID `gorm:"type:uuid;primaryKey"`
-	Name           string    `gorm:"type:varchar(255);not null;index:idx_customers_name"`
-	DocumentType   string    `gorm:"type:varchar(50);not null"`
-	DocumentNumber string    `gorm:"type:varchar(50);not null;uniqueIndex:uq_customers_doc"`
-	Email          *string   `gorm:"type:varchar(255)"`
-	Phone          *string   `gorm:"type:varchar(50)"`
-	MobilePhone    *string   `gorm:"type:varchar(50)"`
-	Address        *string   `gorm:"type:text"`
-	City           *string   `gorm:"type:varchar(100)"`
-	Department     *string   `gorm:"type:varchar(100)"`
-	BusinessName   *string   `gorm:"type:varchar(255)"`
-	TaxCategory    *string   `gorm:"type:varchar(100)"`
-	Notes          *string   `gorm:"type:text"`
-	Status         string    `gorm:"type:varchar(50);default:'active';index:idx_customers_status"`
-	CreatedAt      time.Time `gorm:"not null;index:idx_customers_created_at"`
-	UpdatedAt      time.Time `gorm:"not null"`
-}
-
-func (customerModel) TableName() string {
-	return "customers"
-}
-
 type customerRepository struct {
 	db *gorm.DB
 }
@@ -56,15 +32,10 @@ func NewCustomerRepository(db *gorm.DB) domain.CustomerRepository {
 	return &customerRepository{db: db}
 }
 
-func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(&customerModel{})
-}
-
 // Create inserta un nuevo cliente en la base de datos.
 func (r *customerRepository) Create(ctx context.Context, customer *domain.Customer) error {
 	model := toCustomerModel(customer)
-	err := r.db.WithContext(ctx).Create(&model).Error
-	if err != nil {
+	if err := r.db.WithContext(ctx).Create(&model).Error; err != nil {
 		if isDuplicateKey(err) {
 			return domain.ErrCustomerDocumentExists
 		}
@@ -97,54 +68,20 @@ func (r *customerRepository) GetAll(
 	var models []customerModel
 	var total int64
 
-	query := r.db.WithContext(ctx).Model(&customerModel{})
-
-	if filters != nil {
-		if filters.Search != "" {
-			search := "%" + filters.Search + "%"
-			query = query.Where(
-				"name ILIKE ? OR document_number ILIKE ? OR business_name ILIKE ? OR email ILIKE ? OR phone ILIKE ? OR mobile_phone ILIKE ?",
-				search, search, search, search, search, search,
-			)
-		}
-		if len(filters.DocumentTypes) > 0 {
-			query = query.Where("document_type IN ?", filters.DocumentTypes)
-		}
-		if len(filters.Statuses) > 0 {
-			query = query.Where("status IN ?", filters.Statuses)
-		}
-		if filters.City != "" {
-			query = query.Where("city ILIKE ?", filters.City)
-		}
-	}
+	query := applyCustomerFilters(r.db.WithContext(ctx).Model(&customerModel{}), filters)
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, err
 	}
 
-	// Ordenamiento seguro usando whitelist
-	orderColumn := "created_at"
-	if col, ok := allowedSortColumns[strings.ToLower(sortBy)]; ok {
-		orderColumn = col
-	}
-	direction := "ASC"
-	if descending {
-		direction = "DESC"
-	}
-	query = query.Order(orderColumn + " " + direction)
-
+	orderClause := buildOrderClause(sortBy, descending)
 	offset := (page - 1) * limit
-	if err := query.Offset(offset).Limit(limit).Find(&models).Error; err != nil {
+	if err := query.Order(orderClause).Offset(offset).Limit(limit).Find(&models).Error; err != nil {
 		return nil, err
 	}
 
-	customers := make([]*domain.Customer, len(models))
-	for i, m := range models {
-		customers[i] = toCustomerDomain(&m)
-	}
-
 	return &domain.PaginatedCustomerResult{
-		Data:       customers,
+		Data:       mapCustomersToDomain(models),
 		Total:      total,
 		Page:       page,
 		Limit:      limit,
@@ -159,7 +96,7 @@ func (r *customerRepository) Search(ctx context.Context, query string, limit int
 
 	q := r.db.WithContext(ctx).
 		Where(
-			"name ILIKE ? OR document_number ILIKE ? OR business_name ILIKE ? OR email ILIKE ? OR mobile_phone ILIKE ?",
+			"(name ILIKE ? OR document_number ILIKE ? OR business_name ILIKE ? OR email ILIKE ? OR mobile_phone ILIKE ?)",
 			search, search, search, search, search,
 		).
 		Order("name ASC").
@@ -173,11 +110,7 @@ func (r *customerRepository) Search(ctx context.Context, query string, limit int
 		return nil, err
 	}
 
-	customers := make([]*domain.Customer, len(models))
-	for i, m := range models {
-		customers[i] = toCustomerDomain(&m)
-	}
-	return customers, nil
+	return mapCustomersToDomain(models), nil
 }
 
 // GetDistinctCities retorna la lista de ciudades únicas no nulas ordenada alfabéticamente.
@@ -239,7 +172,6 @@ func (r *customerRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 // CheckDocumentConflict verifica si ya existe un cliente con el mismo tipo y número de documento.
-// excludeID permite excluir un registro específico (útil en actualizaciones).
 func (r *customerRepository) CheckDocumentConflict(ctx context.Context, docType, docNumber string, excludeID *uuid.UUID) (bool, error) {
 	var count int64
 	q := r.db.WithContext(ctx).Model(&customerModel{}).
@@ -254,75 +186,78 @@ func (r *customerRepository) CheckDocumentConflict(ctx context.Context, docType,
 }
 
 // HasAssociatedRecords verifica si el cliente tiene registros vinculados en otras tablas.
-// Actualmente revisa si existe como customer_id en inventory_transactions.
 func (r *customerRepository) HasAssociatedRecords(ctx context.Context, id uuid.UUID) (bool, error) {
-	var count int64
-	// Verificar si la tabla inventory_transactions tiene registros con este customer_id
-	err := r.db.WithContext(ctx).
-		Raw("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'inventory_transactions'").
-		Scan(&count).Error
-	if err != nil {
-		return false, err
+	tables := []string{"inventory_logs", "sales", "inventory_transactions"}
+	for _, table := range tables {
+		linked, err := r.countCustomerLinksInTable(ctx, table, id)
+		if err != nil {
+			return false, err
+		}
+		if linked > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *customerRepository) countCustomerLinksInTable(ctx context.Context, tableName string, customerID uuid.UUID) (int64, error) {
+	var colExists int64
+	err := r.db.WithContext(ctx).Raw(
+		"SELECT COUNT(*) FROM information_schema.columns WHERE table_name = ? AND column_name = 'customer_id'",
+		tableName,
+	).Scan(&colExists).Error
+	if err != nil || colExists == 0 {
+		return 0, err
 	}
 
-	// Si la tabla no existe aún, no hay registros vinculados
-	if count == 0 {
-		return false, nil
-	}
-
-	// Verificar registros vinculados en inventory_transactions
 	var linked int64
 	err = r.db.WithContext(ctx).
-		Raw("SELECT COUNT(*) FROM inventory_transactions WHERE customer_id = ?", id).
+		Raw("SELECT COUNT(*) FROM "+tableName+" WHERE customer_id = ?", customerID).
 		Scan(&linked).Error
-	if err != nil {
-		return false, err
-	}
-	return linked > 0, nil
+	return linked, err
 }
 
-// --- Helpers ---
-
-func toCustomerDomain(m *customerModel) *domain.Customer {
-	return &domain.Customer{
-		ID:             m.ID,
-		Name:           m.Name,
-		DocumentType:   m.DocumentType,
-		DocumentNumber: m.DocumentNumber,
-		Email:          m.Email,
-		Phone:          m.Phone,
-		MobilePhone:    m.MobilePhone,
-		Address:        m.Address,
-		City:           m.City,
-		Department:     m.Department,
-		BusinessName:   m.BusinessName,
-		TaxCategory:    m.TaxCategory,
-		Notes:          m.Notes,
-		Status:         m.Status,
-		CreatedAt:      m.CreatedAt,
-		UpdatedAt:      m.UpdatedAt,
+func applyCustomerFilters(query *gorm.DB, filters *domain.CustomerFilters) *gorm.DB {
+	if filters == nil {
+		return query
 	}
+	if filters.Search != "" {
+		search := "%" + filters.Search + "%"
+		query = query.Where(
+			"(name ILIKE ? OR document_number ILIKE ? OR business_name ILIKE ? OR email ILIKE ? OR phone ILIKE ? OR mobile_phone ILIKE ?)",
+			search, search, search, search, search, search,
+		)
+	}
+	if len(filters.DocumentTypes) > 0 {
+		query = query.Where("document_type IN ?", filters.DocumentTypes)
+	}
+	if len(filters.Statuses) > 0 {
+		query = query.Where("status IN ?", filters.Statuses)
+	}
+	if filters.City != "" {
+		query = query.Where("city ILIKE ?", filters.City)
+	}
+	return query
 }
 
-func toCustomerModel(c *domain.Customer) *customerModel {
-	return &customerModel{
-		ID:             c.ID,
-		Name:           c.Name,
-		DocumentType:   c.DocumentType,
-		DocumentNumber: c.DocumentNumber,
-		Email:          c.Email,
-		Phone:          c.Phone,
-		MobilePhone:    c.MobilePhone,
-		Address:        c.Address,
-		City:           c.City,
-		Department:     c.Department,
-		BusinessName:   c.BusinessName,
-		TaxCategory:    c.TaxCategory,
-		Notes:          c.Notes,
-		Status:         c.Status,
-		CreatedAt:      c.CreatedAt,
-		UpdatedAt:      c.UpdatedAt,
+func buildOrderClause(sortBy string, descending bool) string {
+	orderColumn := "created_at"
+	if col, ok := allowedSortColumns[strings.ToLower(sortBy)]; ok {
+		orderColumn = col
 	}
+	direction := "ASC"
+	if descending {
+		direction = "DESC"
+	}
+	return orderColumn + " " + direction
+}
+
+func mapCustomersToDomain(models []customerModel) []*domain.Customer {
+	customers := make([]*domain.Customer, len(models))
+	for i := range models {
+		customers[i] = toCustomerDomain(&models[i])
+	}
+	return customers
 }
 
 func isDuplicateKey(err error) bool {

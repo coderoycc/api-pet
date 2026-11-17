@@ -58,6 +58,55 @@ func (s *ProductService) CreateProduct(ctx context.Context, dto *ProductCreateDt
 		product.Images = images
 	}
 
+	var presentations []domain.ProductPresentation
+	if len(dto.Presentations) > 0 {
+		for _, p := range dto.Presentations {
+			pid := uuid.New()
+			if p.ID != nil && *p.ID != "" {
+				if parsed, err := uuid.Parse(*p.ID); err == nil {
+					pid = parsed
+				}
+			}
+			factor := p.ConversionFactor
+			if factor <= 0 {
+				factor = 1.0
+			}
+			salePrice := p.SalePrice
+			if salePrice <= 0 {
+				salePrice = dto.Price
+			}
+			presentations = append(presentations, domain.ProductPresentation{
+				ID:               pid,
+				ProductID:        product.ID,
+				Name:             p.Name,
+				Barcode:          p.Barcode,
+				ConversionFactor: factor,
+				SalePrice:        salePrice,
+				IsDefault:        p.IsDefault,
+				CreatedAt:        time.Now(),
+				UpdatedAt:        time.Now(),
+			})
+		}
+	} else {
+		// Presentación por defecto con Factor 1.0
+		unitName := dto.Unit
+		if unitName == "" {
+			unitName = "Unidad"
+		}
+		presentations = append(presentations, domain.ProductPresentation{
+			ID:               uuid.New(),
+			ProductID:        product.ID,
+			Name:             unitName,
+			Barcode:          dto.SKU,
+			ConversionFactor: 1.0,
+			SalePrice:        dto.Price,
+			IsDefault:        true,
+			CreatedAt:        time.Now(),
+			UpdatedAt:        time.Now(),
+		})
+	}
+	product.Presentations = presentations
+
 	if err := s.repo.Create(ctx, product); err != nil {
 		return nil, err
 	}
@@ -135,6 +184,38 @@ func (s *ProductService) UpdateProduct(ctx context.Context, id uuid.UUID, dto *P
 		product.Images = images
 	}
 
+	if dto.Presentations != nil {
+		var presentations []domain.ProductPresentation
+		for _, p := range dto.Presentations {
+			factor := p.ConversionFactor
+			if factor <= 0 {
+				factor = 1.0
+			}
+			salePrice := p.SalePrice
+			if salePrice <= 0 {
+				salePrice = product.Price
+			}
+			presID := uuid.New()
+			if p.ID != nil && *p.ID != "" {
+				if parsed, err := uuid.Parse(*p.ID); err == nil {
+					presID = parsed
+				}
+			}
+			presentations = append(presentations, domain.ProductPresentation{
+				ID:               presID,
+				ProductID:        product.ID,
+				Name:             p.Name,
+				Barcode:          p.Barcode,
+				ConversionFactor: factor,
+				SalePrice:        salePrice,
+				IsDefault:        p.IsDefault,
+				CreatedAt:        time.Now(),
+				UpdatedAt:        time.Now(),
+			})
+		}
+		product.Presentations = presentations
+	}
+
 	product.UpdatedAt = time.Now()
 
 	if err := s.repo.Update(ctx, product); err != nil {
@@ -168,7 +249,7 @@ func (s *ProductService) GetProducts(ctx context.Context, page, limit int, filte
 		return nil, err
 	}
 
-	var data []*ProductResponse
+	data := make([]*ProductResponse, 0, len(result.Data))
 	for _, p := range result.Data {
 		data = append(data, toProductResponse(p))
 	}
@@ -204,7 +285,7 @@ func (s *ProductService) GetLowStockProducts(ctx context.Context, threshold int)
 		return nil, err
 	}
 
-	var dtos []*ProductResponse
+	dtos := make([]*ProductResponse, 0, len(data))
 	for _, p := range data {
 		dtos = append(dtos, toProductResponse(p))
 	}
@@ -256,6 +337,26 @@ func toProductResponse(product *domain.Product) *ProductResponse {
 		resp.Images = imgDtos
 	} else {
 		resp.Images = []ProductImageDto{}
+	}
+
+	if len(product.Presentations) > 0 {
+		var presDtos []ProductPresentationDto
+		for _, pres := range product.Presentations {
+			presDtos = append(presDtos, ProductPresentationDto{
+				ID:               pres.ID.String(),
+				ProductID:        pres.ProductID.String(),
+				Name:             pres.Name,
+				Barcode:          pres.Barcode,
+				ConversionFactor: pres.ConversionFactor,
+				SalePrice:        pres.SalePrice,
+				IsDefault:        pres.IsDefault,
+				CreatedAt:        pres.CreatedAt,
+				UpdatedAt:        pres.UpdatedAt,
+			})
+		}
+		resp.Presentations = presDtos
+	} else {
+		resp.Presentations = []ProductPresentationDto{}
 	}
 	
 	if resp.Tags == nil {

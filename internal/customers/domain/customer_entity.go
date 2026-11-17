@@ -6,6 +6,21 @@ import (
 	"github.com/google/uuid"
 )
 
+// Tipos de documento válidos para clientes.
+const (
+	DocTypeNIT      = "nit"
+	DocTypeCI       = "ci"
+	DocTypePassport = "passport"
+	DocTypeOther    = "other"
+)
+
+// Estados válidos para clientes.
+const (
+	StatusActive    = "active"
+	StatusInactive  = "inactive"
+	StatusSuspended = "suspended"
+)
+
 type Customer struct {
 	ID             uuid.UUID `json:"id"`
 	Name           string    `json:"name"`
@@ -20,7 +35,7 @@ type Customer struct {
 	BusinessName   *string   `json:"businessName"`
 	TaxCategory    *string   `json:"taxCategory"`
 	Notes          *string   `json:"notes"`
-	Status         string    `json:"status"` // active, inactive, suspended
+	Status         string    `json:"status"`
 	CreatedAt      time.Time `json:"createdAt"`
 	UpdatedAt      time.Time `json:"updatedAt"`
 }
@@ -41,4 +56,3 @@ type PaginatedCustomerResult struct {
 	Limit      int
 	TotalPages int
 }
-

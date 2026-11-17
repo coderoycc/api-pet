@@ -40,7 +40,7 @@ type ExpiringProduct struct {
 	BatchNumber     string
 	ExpirationDate  string
 	DaysUntilExpiry int
-	Quantity        int
+	Quantity        float64
 	Unit            string
 	Urgency         string
 	SupplierName    string

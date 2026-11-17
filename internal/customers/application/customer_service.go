@@ -2,23 +2,13 @@ package application
 
 import (
 	"context"
-	"fmt"
 	"math"
-	"net/mail"
 	"time"
 
 	"api-go/internal/customers/domain"
 
 	"github.com/google/uuid"
 )
-
-// validDocumentTypes define los tipos de documento aceptados.
-var validDocumentTypes = map[string]bool{
-	"nit":      true,
-	"ci":       true,
-	"passport": true,
-	"other":    true,
-}
 
 type CustomerService struct {
 	repo domain.CustomerRepository
@@ -28,60 +18,9 @@ func NewCustomerService(repo domain.CustomerRepository) *CustomerService {
 	return &CustomerService{repo: repo}
 }
 
-// validateDocumentType verifica que el tipo de documento sea válido.
-func validateDocumentType(docType string) error {
-	if !validDocumentTypes[docType] {
-		return domain.ErrInvalidCustomerDocumentType
-	}
-	return nil
-}
-
-// validateEmail verifica el formato del email si se proporciona.
-func validateEmail(email *string) error {
-	if email == nil || *email == "" {
-		return nil
-	}
-	if _, err := mail.ParseAddress(*email); err != nil {
-		return fmt.Errorf("invalid email format: %s", *email)
-	}
-	return nil
-}
-
-// CreateCustomer crea un nuevo cliente con validaciones completas.
+// CreateCustomer crea un nuevo cliente con validaciones y normalización completas.
 func (s *CustomerService) CreateCustomer(ctx context.Context, dto CustomerCreateDTO) (*domain.Customer, error) {
-	if dto.Name == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if dto.DocumentType == "" {
-		return nil, fmt.Errorf("documentType is required")
-	}
-	if dto.DocumentNumber == "" {
-		return nil, fmt.Errorf("documentNumber is required")
-	}
-
-	if err := validateDocumentType(dto.DocumentType); err != nil {
-		return nil, err
-	}
-	if err := validateEmail(dto.Email); err != nil {
-		return nil, err
-	}
-
-	// Verificar unicidad del documento
-	conflict, err := s.repo.CheckDocumentConflict(ctx, dto.DocumentType, dto.DocumentNumber, nil)
-	if err != nil {
-		return nil, err
-	}
-	if conflict {
-		return nil, domain.ErrCustomerDocumentExists
-	}
-
-	status := dto.Status
-	if status == "" {
-		status = "active"
-	}
-
-	customer := &domain.Customer{
-		ID:             uuid.New(),
+	input := customerInput{
 		Name:           dto.Name,
 		DocumentType:   dto.DocumentType,
 		DocumentNumber: dto.DocumentNumber,
@@ -94,9 +33,39 @@ func (s *CustomerService) CreateCustomer(ctx context.Context, dto CustomerCreate
 		BusinessName:   dto.BusinessName,
 		TaxCategory:    dto.TaxCategory,
 		Notes:          dto.Notes,
-		Status:         status,
-		CreatedAt:      time.Now(),
-		UpdatedAt:      time.Now(),
+		Status:         dto.Status,
+	}
+
+	if err := normalizeAndValidateCustomer(&input, domain.StatusActive); err != nil {
+		return nil, err
+	}
+
+	conflict, err := s.repo.CheckDocumentConflict(ctx, input.DocumentType, input.DocumentNumber, nil)
+	if err != nil {
+		return nil, err
+	}
+	if conflict {
+		return nil, domain.ErrCustomerDocumentExists
+	}
+
+	now := time.Now()
+	customer := &domain.Customer{
+		ID:             uuid.New(),
+		Name:           input.Name,
+		DocumentType:   input.DocumentType,
+		DocumentNumber: input.DocumentNumber,
+		Email:          input.Email,
+		Phone:          input.Phone,
+		MobilePhone:    input.MobilePhone,
+		Address:        input.Address,
+		City:           input.City,
+		Department:     input.Department,
+		BusinessName:   input.BusinessName,
+		TaxCategory:    input.TaxCategory,
+		Notes:          input.Notes,
+		Status:         input.Status,
+		CreatedAt:      now,
+		UpdatedAt:      now,
 	}
 
 	if err := s.repo.Create(ctx, customer); err != nil {
@@ -138,7 +107,7 @@ func (s *CustomerService) GetCustomers(
 	}
 
 	totalPages := int(math.Ceil(float64(result.Total) / float64(limit)))
-	if totalPages < 1 && result.Total == 0 {
+	if result.Total == 0 {
 		totalPages = 0
 	}
 
@@ -166,7 +135,7 @@ func (s *CustomerService) SearchCustomers(ctx context.Context, query string, lim
 		limit = 50
 	}
 	if status == "" {
-		status = "active"
+		status = domain.StatusActive
 	}
 
 	customers, err := s.repo.Search(ctx, query, limit, status)
@@ -195,25 +164,34 @@ func (s *CustomerService) GetDistinctCities(ctx context.Context) ([]string, erro
 	return s.repo.GetDistinctCities(ctx)
 }
 
-// UpdateCustomer actualiza los datos de un cliente con validaciones completas.
+// UpdateCustomer actualiza los datos de un cliente con validaciones y normalización completas.
 func (s *CustomerService) UpdateCustomer(ctx context.Context, id uuid.UUID, dto CustomerUpdateDTO) (*domain.Customer, error) {
 	customer, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	if dto.Name == "" {
-		return nil, fmt.Errorf("name is required")
+	input := customerInput{
+		Name:           dto.Name,
+		DocumentType:   dto.DocumentType,
+		DocumentNumber: dto.DocumentNumber,
+		Email:          dto.Email,
+		Phone:          dto.Phone,
+		MobilePhone:    dto.MobilePhone,
+		Address:        dto.Address,
+		City:           dto.City,
+		Department:     dto.Department,
+		BusinessName:   dto.BusinessName,
+		TaxCategory:    dto.TaxCategory,
+		Notes:          dto.Notes,
+		Status:         dto.Status,
 	}
-	if err := validateDocumentType(dto.DocumentType); err != nil {
-		return nil, err
-	}
-	if err := validateEmail(dto.Email); err != nil {
+
+	if err := normalizeAndValidateCustomer(&input, customer.Status); err != nil {
 		return nil, err
 	}
 
-	// Verificar unicidad del documento excluyendo al propio cliente
-	conflict, err := s.repo.CheckDocumentConflict(ctx, dto.DocumentType, dto.DocumentNumber, &id)
+	conflict, err := s.repo.CheckDocumentConflict(ctx, input.DocumentType, input.DocumentNumber, &id)
 	if err != nil {
 		return nil, err
 	}
@@ -221,22 +199,19 @@ func (s *CustomerService) UpdateCustomer(ctx context.Context, id uuid.UUID, dto 
 		return nil, domain.ErrCustomerDocumentExists
 	}
 
-	customer.Name = dto.Name
-	customer.DocumentType = dto.DocumentType
-	customer.DocumentNumber = dto.DocumentNumber
-	customer.Email = dto.Email
-	customer.Phone = dto.Phone
-	customer.MobilePhone = dto.MobilePhone
-	customer.Address = dto.Address
-	customer.City = dto.City
-	customer.Department = dto.Department
-	customer.BusinessName = dto.BusinessName
-	customer.TaxCategory = dto.TaxCategory
-	customer.Notes = dto.Notes
-
-	if dto.Status != "" {
-		customer.Status = dto.Status
-	}
+	customer.Name = input.Name
+	customer.DocumentType = input.DocumentType
+	customer.DocumentNumber = input.DocumentNumber
+	customer.Email = input.Email
+	customer.Phone = input.Phone
+	customer.MobilePhone = input.MobilePhone
+	customer.Address = input.Address
+	customer.City = input.City
+	customer.Department = input.Department
+	customer.BusinessName = input.BusinessName
+	customer.TaxCategory = input.TaxCategory
+	customer.Notes = input.Notes
+	customer.Status = input.Status
 	customer.UpdatedAt = time.Now()
 
 	if err := s.repo.Update(ctx, customer); err != nil {
@@ -248,6 +223,10 @@ func (s *CustomerService) UpdateCustomer(ctx context.Context, id uuid.UUID, dto 
 
 // DeleteCustomer elimina un cliente, verificando primero la integridad referencial.
 func (s *CustomerService) DeleteCustomer(ctx context.Context, id uuid.UUID) error {
+	if _, err := s.repo.GetByID(ctx, id); err != nil {
+		return err
+	}
+
 	hasRecords, err := s.repo.HasAssociatedRecords(ctx, id)
 	if err != nil {
 		return err
@@ -255,5 +234,6 @@ func (s *CustomerService) DeleteCustomer(ctx context.Context, id uuid.UUID) erro
 	if hasRecords {
 		return domain.ErrCustomerHasAssociatedRecords
 	}
+
 	return s.repo.Delete(ctx, id)
 }

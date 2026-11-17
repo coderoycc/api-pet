@@ -53,7 +53,7 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 
-		svc := application.NewAuthService(repo, secret)
+		svc := application.NewAuthService(repo, nil, secret)
 		res, err := svc.Login(context.Background(), &authDomain.LoginRequest{
 			Email:    "admin@example.com",
 			Password: "password123",
@@ -104,7 +104,7 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 
-		svc := application.NewAuthService(repo, secret)
+		svc := application.NewAuthService(repo, nil, secret)
 		_, err := svc.Login(context.Background(), &authDomain.LoginRequest{
 			Email:    "admin@example.com",
 			Password: "wrongpassword",
@@ -126,7 +126,7 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 
-		svc := application.NewAuthService(repo, secret)
+		svc := application.NewAuthService(repo, nil, secret)
 		_, err := svc.Login(context.Background(), &authDomain.LoginRequest{
 			Email:    "suspended@example.com",
 			Password: "password123",
@@ -157,7 +157,7 @@ func TestAuthService_GetProfile(t *testing.T) {
 			},
 		}
 
-		svc := application.NewAuthService(repo, secret)
+		svc := application.NewAuthService(repo, nil, secret)
 		profile, err := svc.GetProfile(context.Background(), "admin@example.com")
 
 		if err != nil {
@@ -178,11 +178,57 @@ func TestAuthService_GetProfile(t *testing.T) {
 			err: userDomain.ErrNotFound,
 		}
 
-		svc := application.NewAuthService(repo, secret)
+		svc := application.NewAuthService(repo, nil, secret)
 		_, err := svc.GetProfile(context.Background(), "unknown@example.com")
 
 		if !errors.Is(err, authDomain.ErrInvalidCredentials) {
 			t.Fatalf("expected ErrInvalidCredentials, got %v", err)
+		}
+	})
+}
+
+func TestAuthService_Register(t *testing.T) {
+	secret := "testsecret"
+
+	t.Run("successful register", func(t *testing.T) {
+		repo := &mockUserRepo{
+			err: userDomain.ErrNotFound,
+		}
+
+		svc := application.NewAuthService(repo, nil, secret)
+		res, err := svc.Register(context.Background(), &authDomain.RegisterRequest{
+			Name:     "Nuevo Usuario",
+			Email:    "nuevo@example.com",
+			Password: "Password123!",
+		})
+
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if res.AccessToken == "" {
+			t.Fatal("expected access token to be non-empty")
+		}
+
+		if res.User.Email != "nuevo@example.com" {
+			t.Fatalf("expected email nuevo@example.com, got %s", res.User.Email)
+		}
+	})
+
+	t.Run("missing required fields", func(t *testing.T) {
+		repo := &mockUserRepo{
+			err: userDomain.ErrNotFound,
+		}
+
+		svc := application.NewAuthService(repo, nil, secret)
+		_, err := svc.Register(context.Background(), &authDomain.RegisterRequest{
+			Name:     "",
+			Email:    "test@example.com",
+			Password: "pass",
+		})
+
+		if !errors.Is(err, authDomain.ErrInvalidInput) {
+			t.Fatalf("expected ErrInvalidInput, got %v", err)
 		}
 	})
 }

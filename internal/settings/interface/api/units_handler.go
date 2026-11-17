@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"strings"
 
 	"api-go/internal/settings/application"
 	"api-go/internal/settings/domain"
@@ -25,10 +26,26 @@ func (h *UnitOfMeasureHandler) Create(c fiber.Ctx) error {
 		})
 	}
 
-	if dto.Detail == "" || dto.Abbreviation == "" {
+	dto.Detail = strings.TrimSpace(dto.Detail)
+	dto.Abbreviation = strings.ToUpper(strings.TrimSpace(dto.Abbreviation))
+
+	if dto.Detail == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Detail and abbreviation are required",
+			"error": "El nombre o detalle de la unidad es requerido",
 		})
+	}
+
+	if dto.Abbreviation == "" {
+		fields := strings.Fields(dto.Detail)
+		if len(fields) > 0 {
+			if len(fields[0]) <= 4 {
+				dto.Abbreviation = strings.ToUpper(fields[0])
+			} else {
+				dto.Abbreviation = strings.ToUpper(fields[0][:4])
+			}
+		} else {
+			dto.Abbreviation = "UND"
+		}
 	}
 
 	if dto.Status == "" {

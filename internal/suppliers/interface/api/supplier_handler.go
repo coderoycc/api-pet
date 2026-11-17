@@ -28,9 +28,9 @@ func (h *SupplierHandler) Create(c fiber.Ctx) error {
 		})
 	}
 
-	if dto.Name == "" || dto.TaxID == "" {
+	if strings.TrimSpace(dto.Name) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Name and TaxID are required",
+			"error": "El nombre del proveedor es obligatorio",
 		})
 	}
 
@@ -114,9 +114,9 @@ func (h *SupplierHandler) Update(c fiber.Ctx) error {
 		})
 	}
 
-	if dto.Name == "" || dto.TaxID == "" {
+	if strings.TrimSpace(dto.Name) == "" {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-			"error": "Name and TaxID are required",
+			"error": "El nombre del proveedor es obligatorio",
 		})
 	}
 

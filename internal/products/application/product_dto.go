@@ -18,70 +18,94 @@ type ProductCreateImageDto struct {
 	IsPrimary bool   `json:"isPrimary"`
 }
 
+type ProductPresentationDto struct {
+	ID               string    `json:"id"`
+	ProductID        string    `json:"productId"`
+	Name             string    `json:"name"`
+	Barcode          string    `json:"barcode"`
+	ConversionFactor float64   `json:"conversionFactor"`
+	SalePrice        float64   `json:"salePrice"`
+	IsDefault        bool      `json:"isDefault"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+type ProductCreatePresentationDto struct {
+	ID               *string `json:"id,omitempty"`
+	Name             string  `json:"name"`
+	Barcode          string  `json:"barcode"`
+	ConversionFactor float64 `json:"conversionFactor"`
+	SalePrice        float64 `json:"salePrice"`
+	IsDefault        bool    `json:"isDefault"`
+}
+
 type ProductBatchDto struct {
 	ID             string    `json:"id"`
 	BatchNumber    string    `json:"batchNumber"`
 	ExpirationDate time.Time `json:"expirationDate"`
-	Quantity       int       `json:"quantity"`
+	Quantity       float64   `json:"quantity"`
 	SupplierID     *string   `json:"supplierId,omitempty"`
 }
 
 type ProductCreateDto struct {
-	SKU         string                  `json:"sku"`
-	Name        string                  `json:"name"`
-	Description string                  `json:"description"`
-	Category    string                  `json:"category"`
-	Subcategory string                  `json:"subcategory,omitempty"`
-	Price       float64                 `json:"price"`
-	Cost        float64                 `json:"cost"`
-	Quantity    int                     `json:"quantity"`
-	MinQuantity int                     `json:"minQuantity"`
-	MaxQuantity *int                    `json:"maxQuantity,omitempty"`
-	Unit        string                  `json:"unit"`
-	Status      string                  `json:"status"`
-	SupplierID  *string                 `json:"supplierId,omitempty"`
-	Images      []ProductCreateImageDto `json:"images,omitempty"`
-	Tags        []string                `json:"tags,omitempty"`
+	SKU           string                         `json:"sku"`
+	Name          string                         `json:"name"`
+	Description   string                         `json:"description"`
+	Category      string                         `json:"category"`
+	Subcategory   string                         `json:"subcategory,omitempty"`
+	Price         float64                        `json:"price"`
+	Cost          float64                        `json:"cost"`
+	Quantity      float64                        `json:"quantity"`
+	MinQuantity   float64                        `json:"minQuantity"`
+	MaxQuantity   *float64                       `json:"maxQuantity,omitempty"`
+	Unit          string                         `json:"unit"`
+	Status        string                         `json:"status"`
+	SupplierID    *string                        `json:"supplierId,omitempty"`
+	Images        []ProductCreateImageDto        `json:"images,omitempty"`
+	Tags          []string                       `json:"tags,omitempty"`
+	Presentations []ProductCreatePresentationDto `json:"presentations,omitempty"`
 }
 
 type ProductUpdateDto struct {
-	ID          string                  `json:"id"`
-	SKU         *string                 `json:"sku,omitempty"`
-	Name        *string                 `json:"name,omitempty"`
-	Description *string                 `json:"description,omitempty"`
-	Category    *string                 `json:"category,omitempty"`
-	Subcategory *string                 `json:"subcategory,omitempty"`
-	Price       *float64                `json:"price,omitempty"`
-	Cost        *float64                `json:"cost,omitempty"`
-	Quantity    *int                    `json:"quantity,omitempty"`
-	MinQuantity *int                    `json:"minQuantity,omitempty"`
-	MaxQuantity *int                    `json:"maxQuantity,omitempty"`
-	Unit        *string                 `json:"unit,omitempty"`
-	Status      *string                 `json:"status,omitempty"`
-	SupplierID  *string                 `json:"supplierId,omitempty"`
-	Images      []ProductCreateImageDto `json:"images,omitempty"`
-	Tags        []string                `json:"tags,omitempty"`
+	ID            string                         `json:"id"`
+	SKU           *string                        `json:"sku,omitempty"`
+	Name          *string                        `json:"name,omitempty"`
+	Description   *string                        `json:"description,omitempty"`
+	Category      *string                        `json:"category,omitempty"`
+	Subcategory   *string                        `json:"subcategory,omitempty"`
+	Price         *float64                       `json:"price,omitempty"`
+	Cost          *float64                       `json:"cost,omitempty"`
+	Quantity      *float64                       `json:"quantity,omitempty"`
+	MinQuantity   *float64                       `json:"minQuantity,omitempty"`
+	MaxQuantity   *float64                       `json:"maxQuantity,omitempty"`
+	Unit          *string                        `json:"unit,omitempty"`
+	Status        *string                        `json:"status,omitempty"`
+	SupplierID    *string                        `json:"supplierId,omitempty"`
+	Images        []ProductCreateImageDto        `json:"images,omitempty"`
+	Tags          []string                       `json:"tags,omitempty"`
+	Presentations []ProductCreatePresentationDto `json:"presentations,omitempty"`
 }
 
 type ProductResponse struct {
-	ID          string            `json:"id"`
-	SKU         string            `json:"sku"`
-	Name        string            `json:"name"`
-	Description string            `json:"description"`
-	Category    string            `json:"category"`
-	Subcategory string            `json:"subcategory,omitempty"`
-	Price       float64           `json:"price"`
-	Cost        float64           `json:"cost"`
-	Quantity    int               `json:"quantity"`
-	MinQuantity int               `json:"minQuantity"`
-	MaxQuantity *int              `json:"maxQuantity,omitempty"`
-	Unit        string            `json:"unit"`
-	Status      string            `json:"status"`
-	SupplierID  *string           `json:"supplierId,omitempty"`
-	Images      []ProductImageDto `json:"images,omitempty"`
-	Tags        []string          `json:"tags,omitempty"`
-	CreatedAt   time.Time         `json:"createdAt"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
+	ID            string                   `json:"id"`
+	SKU           string                   `json:"sku"`
+	Name          string                   `json:"name"`
+	Description   string                   `json:"description"`
+	Category      string                   `json:"category"`
+	Subcategory   string                   `json:"subcategory,omitempty"`
+	Price         float64                  `json:"price"`
+	Cost          float64                  `json:"cost"`
+	Quantity      float64                  `json:"quantity"`
+	MinQuantity   float64                  `json:"minQuantity"`
+	MaxQuantity   *float64                 `json:"maxQuantity,omitempty"`
+	Unit          string                   `json:"unit"`
+	Status        string                   `json:"status"`
+	SupplierID    *string                  `json:"supplierId,omitempty"`
+	Images        []ProductImageDto        `json:"images,omitempty"`
+	Tags          []string                 `json:"tags,omitempty"`
+	Presentations []ProductPresentationDto `json:"presentations"`
+	CreatedAt     time.Time                `json:"createdAt"`
+	UpdatedAt     time.Time                `json:"updatedAt"`
 }
 
 type ProductListResponse struct {

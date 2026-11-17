@@ -22,3 +22,10 @@ func RegisterWarehouse(router fiber.Router, db *gorm.DB, authMiddleware fiber.Ha
 	handler := api.NewWarehouseHandler(svc)
 	api.RegisterWarehouseRoutes(router, handler, authMiddleware, roleMiddleware)
 }
+
+func RegisterGeneralSettings(router fiber.Router, db *gorm.DB, authMiddleware fiber.Handler, roleMiddleware fiber.Handler) {
+	repo := postgres.NewAppSettingsRepository(db)
+	svc := application.NewAppSettingsService(repo)
+	handler := api.NewAppSettingsHandler(svc)
+	api.RegisterAppSettingsRoutes(router, handler, authMiddleware, roleMiddleware)
+}

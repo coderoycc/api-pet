@@ -2,23 +2,36 @@ package application
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"time"
 
+	inventoryDomain "api-go/internal/inventory/domain"
 	productDomain "api-go/internal/products/domain"
 	"api-go/internal/purchases/domain"
 
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 type PurchaseService struct {
-	repo        domain.PurchaseRepository
-	productRepo productDomain.ProductRepository
+	repo          domain.PurchaseRepository
+	productRepo   productDomain.ProductRepository
+	inventoryRepo inventoryDomain.InventoryRepository
+	db            *gorm.DB
 }
 
-func NewPurchaseService(repo domain.PurchaseRepository, productRepo productDomain.ProductRepository) *PurchaseService {
+func NewPurchaseService(
+	repo domain.PurchaseRepository,
+	productRepo productDomain.ProductRepository,
+	inventoryRepo inventoryDomain.InventoryRepository,
+	db *gorm.DB,
+) *PurchaseService {
 	return &PurchaseService{
-		repo:        repo,
-		productRepo: productRepo,
+		repo:          repo,
+		productRepo:   productRepo,
+		inventoryRepo: inventoryRepo,
+		db:            db,
 	}
 }
 
@@ -87,7 +100,7 @@ func (s *PurchaseService) CreatePurchase(ctx context.Context, dto *PurchaseCreat
 	return toPurchaseResponse(createdPurchase), nil
 }
 
-func (s *PurchaseService) ReceivePurchase(ctx context.Context, id uuid.UUID) (*PurchaseResponse, error) {
+func (s *PurchaseService) ReceivePurchase(ctx context.Context, id uuid.UUID, userID, userName string) (*PurchaseResponse, error) {
 	purchase, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -100,21 +113,99 @@ func (s *PurchaseService) ReceivePurchase(ctx context.Context, id uuid.UUID) (*P
 		return nil, domain.ErrAlreadyReceived
 	}
 
-	// Update stock for each product
-	for _, item := range purchase.Items {
-		product, err := s.productRepo.GetByID(ctx, item.ProductID)
-		if err == nil {
-			product.Quantity += item.Quantity
-			_ = s.productRepo.Update(ctx, product) // Asumiendo update básico. Podría requerir una transacción mayor en producción.
-		}
-	}
-
 	now := time.Now()
-	purchase.Status = domain.PurchaseStatusReceived
-	purchase.ReceivedAt = &now
-	purchase.UpdatedAt = now
 
-	if err := s.repo.UpdateStatus(ctx, purchase); err != nil {
+	// Transacción atómica ACID
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, item := range purchase.Items {
+			product, err := s.productRepo.GetByID(ctx, item.ProductID)
+			if err != nil {
+				return err
+			}
+
+			oldStock := product.Quantity
+			oldCost := product.Cost
+			qtyIn := float64(item.Quantity)
+			unitCostIn := item.UnitCost
+
+			newStock := oldStock + qtyIn
+
+			// Cálculo del Costo Promedio Ponderado (CPP):
+			// Si no había stock previo o era <= 0, el nuevo costo es el de esta compra.
+			// De lo contrario, se pondera el valor total previo con el valor ingresado.
+			var newCPP float64
+			if oldStock <= 0 {
+				newCPP = unitCostIn
+			} else {
+				totalVal := (oldStock * oldCost) + (qtyIn * unitCostIn)
+				newCPP = totalVal / newStock
+			}
+
+			// Actualizar producto en unidad base
+			product.Quantity = newStock
+			product.Cost = math.Round(newCPP*10000) / 10000 // 4 decimales para precisión contable
+			if err := s.productRepo.Update(ctx, product); err != nil {
+				return err
+			}
+
+			// Crear o registrar lote para FEFO / FIFO
+			batchNumber := fmt.Sprintf("LOTE-%s-%s", purchase.Number, product.SKU)
+			batch := &inventoryDomain.InventoryBatch{
+				ID:          uuid.New(),
+				ProductID:   product.ID,
+				BatchNumber: batchNumber,
+				Quantity:    item.Quantity,
+				Cost:        &unitCostIn,
+				SupplierID:  &purchase.SupplierID,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			if err := s.inventoryRepo.CreateBatch(ctx, batch); err != nil {
+				return err
+			}
+
+			// Registrar movimiento de Entrada en Kardex (Regla de Oro de Inventarios)
+			reason := fmt.Sprintf("Recepción Orden de Compra %s", purchase.Number)
+			reasonType := "purchase"
+			notes := fmt.Sprintf("Ingreso de mercadería por orden de compra. Proveedor: %s. Almacén: %s", purchase.SupplierName, purchase.WarehouseName)
+
+			kardexLog := &inventoryDomain.InventoryLog{
+				ID:            uuid.New(),
+				ProductID:     product.ID,
+				ProductName:   product.Name,
+				BatchID:       &batch.ID,
+				BatchNumber:   &batch.BatchNumber,
+				SKU:           product.SKU,
+				Type:          inventoryDomain.LogTypeInbound,
+				Quantity:      item.Quantity,
+				PreviousStock: int(math.Round(oldStock)),
+				NewStock:      int(math.Round(newStock)),
+				Reason:        reason,
+				ReasonType:    &reasonType,
+				UserID:        userID,
+				UserName:      userName,
+				Notes:         &notes,
+				CreatedAt:     now,
+				Undoable:      false,
+			}
+			if err := s.inventoryRepo.CreateLog(ctx, kardexLog); err != nil {
+				return err
+			}
+		}
+
+		// Actualizar estado de la Orden de Compra
+		purchase.Status = domain.PurchaseStatusReceived
+		purchase.ReceivedAt = &now
+		purchase.UpdatedAt = now
+
+		if err := s.repo.UpdateStatus(ctx, purchase); err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -155,7 +246,7 @@ func (s *PurchaseService) GetPurchases(ctx context.Context, page, limit int, fil
 		return nil, err
 	}
 
-	var data []*PurchaseResponse
+	data := make([]*PurchaseResponse, 0, len(result.Data))
 	for _, p := range result.Data {
 		data = append(data, toPurchaseResponse(p))
 	}

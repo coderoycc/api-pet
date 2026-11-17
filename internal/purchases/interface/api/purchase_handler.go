@@ -8,6 +8,7 @@ import (
 	"api-go/internal/purchases/domain"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
@@ -17,6 +18,29 @@ type PurchaseHandler struct {
 
 func NewPurchaseHandler(service *application.PurchaseService) *PurchaseHandler {
 	return &PurchaseHandler{service: service}
+}
+
+func getUserInfo(c fiber.Ctx) (string, string) {
+	userID := "1"
+	userName := "Administrador"
+
+	if userClaims, ok := c.Locals("user").(jwt.MapClaims); ok {
+		if id, ok := userClaims["user_id"].(string); ok && id != "" {
+			userID = id
+		}
+		if email, ok := userClaims["email"].(string); ok && email != "" {
+			userName = email
+		}
+	} else {
+		if id, ok := c.Locals("user_id").(string); ok && id != "" {
+			userID = id
+		}
+		if name, ok := c.Locals("user_name").(string); ok && name != "" {
+			userName = name
+		}
+	}
+
+	return userID, userName
 }
 
 func (h *PurchaseHandler) CreatePurchase(c fiber.Ctx) error {
@@ -42,7 +66,8 @@ func (h *PurchaseHandler) ReceivePurchase(c fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(application.BaseResponse{Message: "Invalid purchase ID"})
 	}
 
-	res, err := h.service.ReceivePurchase(c.Context(), id)
+	userID, userName := getUserInfo(c)
+	res, err := h.service.ReceivePurchase(c.Context(), id, userID, userName)
 	if err != nil {
 		if errors.Is(err, domain.ErrPurchaseNotFound) {
 			return c.Status(fiber.StatusNotFound).JSON(application.BaseResponse{Message: err.Error()})
