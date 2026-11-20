@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	auditApi "api-go/internal/audit/interface/api"
+
 	"github.com/gofiber/fiber/v3"
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -40,6 +42,7 @@ func NewAuthMiddleware(secret string) fiber.Handler {
 
 		if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			c.Locals("user", claims)
+			auditApi.AttachActor(c)
 		}
 
 		return c.Next()

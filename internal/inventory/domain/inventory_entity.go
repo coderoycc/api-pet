@@ -71,8 +71,8 @@ type CriticalStockItem struct {
 	VariantID        *uuid.UUID `json:"variantId,omitempty"`
 	VariantName      *string    `json:"variantName,omitempty"`
 	SKU              string     `json:"sku"`
-	CurrentStock     int        `json:"currentStock"`
-	MinStock         int        `json:"minStock"`
+	CurrentStock     float64    `json:"currentStock"`
+	MinStock         float64    `json:"minStock"`
 	CategoryName     *string    `json:"categoryName,omitempty"`
 	BrandName        *string    `json:"brandName,omitempty"`
 	AvgDailyUsage    *float64   `json:"avgDailyUsage,omitempty"`

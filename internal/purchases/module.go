@@ -1,6 +1,7 @@
 package purchases
 
 import (
+	auditDomain "api-go/internal/audit/domain"
 	inventoryDomain "api-go/internal/inventory/domain"
 	productDomain "api-go/internal/products/domain"
 	"api-go/internal/purchases/application"
@@ -18,6 +19,7 @@ func RegisterPurchases(
 	roleMiddleware fiber.Handler,
 	productRepo productDomain.ProductRepository,
 	inventoryRepo inventoryDomain.InventoryRepository,
+	auditService auditDomain.AuditService,
 ) {
 	err := postgres.AutoMigrate(db)
 	if err != nil {
@@ -25,7 +27,7 @@ func RegisterPurchases(
 	}
 
 	repo := postgres.NewPurchaseRepository(db)
-	service := application.NewPurchaseService(repo, productRepo, inventoryRepo, db)
+	service := application.NewPurchaseService(repo, productRepo, inventoryRepo, auditService, db)
 	handler := api.NewPurchaseHandler(service)
 
 	api.RegisterRoutes(router, handler, authMiddleware, roleMiddleware)

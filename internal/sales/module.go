@@ -1,6 +1,7 @@
 package sales
 
 import (
+	auditDomain "api-go/internal/audit/domain"
 	inventoryDomain "api-go/internal/inventory/domain"
 	productDomain "api-go/internal/products/domain"
 	"api-go/internal/sales/application"
@@ -17,6 +18,7 @@ func RegisterSales(
 	authMiddleware fiber.Handler,
 	productRepo productDomain.ProductRepository,
 	inventoryRepo inventoryDomain.InventoryRepository,
+	auditService auditDomain.AuditService,
 ) {
 	err := postgres.AutoMigrate(db)
 	if err != nil {
@@ -24,7 +26,7 @@ func RegisterSales(
 	}
 
 	repo := postgres.NewSaleRepository(db)
-	service := application.NewSaleService(repo, productRepo, inventoryRepo, db)
+	service := application.NewSaleService(repo, productRepo, inventoryRepo, auditService, db)
 	handler := api.NewSaleHandler(service)
 
 	api.RegisterRoutes(router, handler, authMiddleware)
