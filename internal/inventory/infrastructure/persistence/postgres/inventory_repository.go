@@ -266,8 +266,8 @@ func (r *inventoryRepository) GetCriticalStock(ctx context.Context, minStock int
 		ID          uuid.UUID
 		Name        string
 		SKU         string
-		Quantity    int
-		MinQuantity int
+		Quantity    float64
+		MinQuantity float64
 		Category    string
 	}
 

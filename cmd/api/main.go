@@ -8,6 +8,8 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"api-go/internal/audit"
+	auditPostgres "api-go/internal/audit/infrastructure/persistence/postgres"
 	"api-go/internal/auth"
 	"api-go/internal/customers"
 	customersPostgres "api-go/internal/customers/infrastructure/persistence/postgres"
@@ -86,6 +88,9 @@ func main() {
 	if err := inventoryPostgres.AutoMigrate(db); err != nil {
 		log.Fatalf("failed to migrate inventory database: %v", err)
 	}
+	if err := auditPostgres.AutoMigrate(db); err != nil {
+		log.Fatalf("failed to migrate audit database: %v", err)
+	}
 
 	// Seeders iniciales
 	if err := userPostgres.Seed(db); err != nil {
@@ -122,12 +127,14 @@ func main() {
 	settings.RegisterWarehouse(settingsGroup, db, authMiddleware, settingsRoleMiddleware)
 	user.RegisterRoles(settingsGroup, db, authMiddleware, settingsRoleMiddleware)
 
-	suppliers.RegisterSuppliers(app.Group("/api/v1"), db, authMiddleware, roleMiddleware)
-	productRepo := products.RegisterProducts(app.Group("/api/v1"), db, authMiddleware, roleMiddleware)
-	inventoryRepo := inventory.RegisterInventory(app.Group("/api/v1"), db, authMiddleware, roleMiddleware, productRepo)
-	purchases.RegisterPurchases(app.Group("/api/v1"), db, authMiddleware, roleMiddleware, productRepo, inventoryRepo)
-	customers.RegisterCustomers(app.Group("/api/v1"), db, authMiddleware, roleMiddleware)
-	sales.RegisterSales(app.Group("/api/v1"), db, authMiddleware, productRepo, inventoryRepo)
+	apiV1 := app.Group("/api/v1")
+	auditService := audit.RegisterAudit(apiV1, db, authMiddleware, roleMiddleware)
+	suppliers.RegisterSuppliers(apiV1, db, authMiddleware, roleMiddleware)
+	productRepo := products.RegisterProducts(apiV1, db, authMiddleware, roleMiddleware)
+	inventoryRepo := inventory.RegisterInventory(apiV1, db, authMiddleware, roleMiddleware, productRepo)
+	purchases.RegisterPurchases(apiV1, db, authMiddleware, roleMiddleware, productRepo, inventoryRepo, auditService)
+	customers.RegisterCustomers(apiV1, db, authMiddleware, roleMiddleware)
+	sales.RegisterSales(apiV1, db, authMiddleware, productRepo, inventoryRepo, auditService)
 
 	port := os.Getenv("PORT")
 	if port == "" {

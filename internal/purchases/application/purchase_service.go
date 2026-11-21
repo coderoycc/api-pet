@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	auditDomain "api-go/internal/audit/domain"
 	inventoryDomain "api-go/internal/inventory/domain"
 	productDomain "api-go/internal/products/domain"
 	"api-go/internal/purchases/domain"
@@ -18,6 +19,7 @@ type PurchaseService struct {
 	repo          domain.PurchaseRepository
 	productRepo   productDomain.ProductRepository
 	inventoryRepo inventoryDomain.InventoryRepository
+	auditService  auditDomain.AuditService
 	db            *gorm.DB
 }
 
@@ -25,12 +27,14 @@ func NewPurchaseService(
 	repo domain.PurchaseRepository,
 	productRepo productDomain.ProductRepository,
 	inventoryRepo inventoryDomain.InventoryRepository,
+	auditService auditDomain.AuditService,
 	db *gorm.DB,
 ) *PurchaseService {
 	return &PurchaseService{
 		repo:          repo,
 		productRepo:   productRepo,
 		inventoryRepo: inventoryRepo,
+		auditService:  auditService,
 		db:            db,
 	}
 }
@@ -95,6 +99,26 @@ func (s *PurchaseService) CreatePurchase(ctx context.Context, dto *PurchaseCreat
 	createdPurchase, err := s.repo.GetByID(ctx, purchase.ID)
 	if err != nil {
 		return nil, err
+	}
+
+	if s.auditService != nil {
+		s.auditService.Record(ctx, auditDomain.AuditEntry{
+			Module:      "purchases",
+			Action:      auditDomain.ActionCreate,
+			EntityType:  "purchase",
+			EntityID:    createdPurchase.ID.String(),
+			Description: fmt.Sprintf("Orden de compra %s creada", createdPurchase.Number),
+			After: map[string]any{
+				"number":       createdPurchase.Number,
+				"status":       createdPurchase.Status,
+				"total_amount": createdPurchase.TotalAmount,
+			},
+			Metadata: map[string]any{
+				"supplier_id":  createdPurchase.SupplierID.String(),
+				"warehouse_id": createdPurchase.WarehouseID.String(),
+				"items_count":  len(createdPurchase.Items),
+			},
+		})
 	}
 
 	return toPurchaseResponse(createdPurchase), nil
@@ -202,6 +226,25 @@ func (s *PurchaseService) ReceivePurchase(ctx context.Context, id uuid.UUID, use
 			return err
 		}
 
+		if s.auditService != nil {
+			if err := s.auditService.RecordTx(ctx, tx, auditDomain.AuditEntry{
+				Module:      "purchases",
+				Action:      auditDomain.ActionReceive,
+				EntityType:  "purchase",
+				EntityID:    purchase.ID.String(),
+				Description: fmt.Sprintf("Orden de compra %s recibida", purchase.Number),
+				Before:      map[string]any{"status": domain.PurchaseStatusPending},
+				After:       map[string]any{"status": domain.PurchaseStatusReceived},
+				Metadata: map[string]any{
+					"purchase_number": purchase.Number,
+					"total_amount":    purchase.TotalAmount,
+					"items_count":     len(purchase.Items),
+				},
+			}); err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
 
@@ -222,11 +265,27 @@ func (s *PurchaseService) CancelPurchase(ctx context.Context, id uuid.UUID) (*Pu
 		return nil, domain.ErrCannotCancelReceived
 	}
 
+	previousStatus := purchase.Status
 	purchase.Status = domain.PurchaseStatusCancelled
 	purchase.UpdatedAt = time.Now()
 
 	if err := s.repo.UpdateStatus(ctx, purchase); err != nil {
 		return nil, err
+	}
+
+	if s.auditService != nil {
+		s.auditService.Record(ctx, auditDomain.AuditEntry{
+			Module:      "purchases",
+			Action:      auditDomain.ActionCancel,
+			EntityType:  "purchase",
+			EntityID:    purchase.ID.String(),
+			Description: fmt.Sprintf("Orden de compra %s cancelada", purchase.Number),
+			Before:      map[string]any{"status": previousStatus},
+			After:       map[string]any{"status": domain.PurchaseStatusCancelled},
+			Metadata: map[string]any{
+				"purchase_number": purchase.Number,
+			},
+		})
 	}
 
 	return toPurchaseResponse(purchase), nil

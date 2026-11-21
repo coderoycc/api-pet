@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	auditDomain "api-go/internal/audit/domain"
 	inventoryDomain "api-go/internal/inventory/domain"
 	productDomain "api-go/internal/products/domain"
 	"api-go/internal/sales/domain"
@@ -18,6 +19,7 @@ type SaleService struct {
 	repo          domain.SaleRepository
 	productRepo   productDomain.ProductRepository
 	inventoryRepo inventoryDomain.InventoryRepository
+	auditService  auditDomain.AuditService
 	db            *gorm.DB
 }
 
@@ -25,12 +27,14 @@ func NewSaleService(
 	repo domain.SaleRepository,
 	productRepo productDomain.ProductRepository,
 	inventoryRepo inventoryDomain.InventoryRepository,
+	auditService auditDomain.AuditService,
 	db *gorm.DB,
 ) *SaleService {
 	return &SaleService{
 		repo:          repo,
 		productRepo:   productRepo,
 		inventoryRepo: inventoryRepo,
+		auditService:  auditService,
 		db:            db,
 	}
 }
@@ -222,6 +226,27 @@ func (s *SaleService) ProcessSale(ctx context.Context, dto *SaleCreateDto, userI
 			}
 
 			if err := s.inventoryRepo.CreateLog(ctx, kardexLog); err != nil {
+				return err
+			}
+		}
+
+		if s.auditService != nil {
+			if err := s.auditService.RecordTx(ctx, tx, auditDomain.AuditEntry{
+				Module:      "sales",
+				Action:      auditDomain.ActionCreate,
+				EntityType:  "sale",
+				EntityID:    sale.ID.String(),
+				Description: fmt.Sprintf("Venta %s registrada por %.2f", sale.InvoiceNumber, sale.TotalAmount),
+				After: map[string]any{
+					"invoice_number": sale.InvoiceNumber,
+					"total_amount":   sale.TotalAmount,
+					"payment_method": sale.PaymentMethod,
+				},
+				Metadata: map[string]any{
+					"customer_name": sale.CustomerName,
+					"items_count":   len(sale.Items),
+				},
+			}); err != nil {
 				return err
 			}
 		}
